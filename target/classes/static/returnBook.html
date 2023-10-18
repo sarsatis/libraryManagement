@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>LMS</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+  <script src="js/bookList.js"></script>
+
+  <style>
+  .loginDesign{
+	background-color: red;
+    margin-left: 26%;
+    margin-right: 34%;
+    margin-top: 6%;
+  }
+  
+
+
+.island {
+position: relative;
+text-align: center;
+    margin-top: 6%;
+}
+
+.island .island-content {
+width: 196px;
+margin: 0 auto;
+}
+
+form {
+margin-bottom: 8px;
+}
+
+.form-control {
+font-size: 16px;
+height: 36px;
+line-height: 1;
+}
+
+.btn-alternate, .island-button, .forgot-password-button {
+color: #eeeeee;
+background-color: #1b92cb;
+background: #01579B;
+box-shadow: 0 2px 0 #196084;
+border: 0 0 2px 0;
+color: white;
+font-weight: normal;
+text-transform: none;
+border-radius: 3px;
+text-transform: uppercase;
+font-size: 14px;
+height: 34px;
+padding: 0;
+line-height: 14px;
+-webkit-appearance: button;
+cursor: pointer;
+width: 100%;
+}
+
+input {
+display: block;
+margin-bottom: 20px;
+}
+
+#sample-img{
+width: 59%;
+    border: 2px solid black;
+        -webkit-filter: grayscale(100%);
+}
+.style_hy {
+    font-size: 18px;
+    color: #00695C;
+    font-weight: 700;
+}
+
+.p_name{
+    font-size: 23px;
+    color: #283593;
+}
+
+.style_header {
+    font-size: 54px;
+    color: #283593;
+    font-weight: 700;
+	color: #035a9f;
+}
+
+.h1_class{
+margin-top:2%;
+margin-bottom:2%;
+}
+.navbar-inverse {
+    background-color: #01579b;
+    border-color: #01579b;
+}
+.navbar-inverse .navbar-brand {
+    color: #ffffff;
+}
+.navbar-inverse .navbar-nav>li>a {
+    color: #ffffff;
+}
+input[type=text] {
+    width: 130px;
+    box-sizing: border-box;
+    border: 2px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+    background-color: white;
+    background-position: 10px 10px; 
+    background-repeat: no-repeat;
+    padding: 12px 20px 12px 40px;
+    -webkit-transition: width 0.4s ease-in-out;
+    transition: width 0.4s ease-in-out;
+	  width: 100%;
+}
+.btn-primary {
+    color: #fff;
+    background-color: #337ab7;
+    border-color: #2e6da4;
+    width: 100%;
+    height: 47px;
+}
+th {
+text-align: -webkit-center;
+    font-size: 18px;
+    }
+    
+    td{
+        padding: 12px;
+    font-size: 14px;
+    }
+  </style>
+  
+  
+  </head>
+<body>
+
+<!-- Header -->
+<nav class="navbar navbar-inverse">
+  <div class="container-fluid">
+    <div class="navbar-header">
+      <a class="navbar-brand" href="#">Library Management System</a>
+    </div>
+    <ul class="nav navbar-nav navbar-right">
+	   <li><a href="#"><span class="glyphicon glyphicon-home"></span> Home</a></li>
+      <li><a href="#"><span class="glyphicon glyphicon-user"></span> Sign Up</a></li>
+    </ul>
+  </div>
+</nav>
+<!-- End of Header -->
+
+<!-- Main content -->
+<div id="band" class="container text-center">
+  <h3 class="style_header ">Return Book Menu</h3>
+
+	 <div class="island">
+	<div class="row">
+	<div class="col-sm-2">
+		<div class="ui-widget">
+			
+			</div>
+	</div>
+			
+			<div class="col-sm-4">
+				<div class="ui-widget">
+					 <input type="text" name="search" placeholder="Enter the Book Id.." id="search">
+				</div>
+			</div>
+			
+			<div class="col-sm-2">
+				<div class="ui-widget">
+					<button type="button" class="btn btn-primary"  onclick="returnBookId()" >Return</button>
+				</div>
+			</div>
+			
+			</div>
+			<div class="row">
+		<div class="col-sm-1">
+		
+		</div>
+		<div class="col-sm-8">
+		  <table class="table table-striped table-bordered" id="filterListTable">
+		   </table>
+		</div>
+		<div class="col-sm-1">
+		
+		</div>
+</div>
+</div>
+</div>
+<!-- End of content -->
+
+
+</body>
+</html>
