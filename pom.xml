@@ -10,9 +10,9 @@
 	</parent>
 
 	<groupId>com.lms</groupId>
-	<artifactId>LibraryManagementSystem</artifactId>
+	<artifactId>librarymanagementsystem</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>LibraryManagementSystem</name>
+	<name>librarymanagementsystem</name>
 	<description>Demo project for Spring Boot</description>
 
 
