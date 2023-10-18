@@ -19,10 +19,7 @@ import com.lms.model.Books;
 import com.lms.model.Member;
 import com.lms.service.BookSearch;
 
-/**
- * @author nitrawat
- *
- */
+
 @RestController
 public class SearchRestController{
 

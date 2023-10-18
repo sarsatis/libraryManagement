@@ -7,10 +7,6 @@ import java.io.Serializable;
 import java.util.Date;
 
 
-/**
- * @author nitrawat
- *
- */
 
 @Entity
 @Table(name = "Member")

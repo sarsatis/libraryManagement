@@ -3,10 +3,6 @@ package com.lms.model;
 import jakarta.persistence.*;
 
 
-/**
- * @author nitrawat
- *
- */
 @Entity
 @Table(name = "Books")
 public class Books implements java.io.Serializable {

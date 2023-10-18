@@ -14,10 +14,6 @@ import com.lms.model.Books;
 import com.lms.service.BookSearch;
 
 
-/**
- * @author nitrawat
- *
- */
 public interface BookSearchDao extends CrudRepository<Books, Serializable>{
 	
 	
