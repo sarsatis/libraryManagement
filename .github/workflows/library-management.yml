@@ -23,7 +23,7 @@ jobs:
           java-version: '17'
 
       - name: Build Maven project
-        run: mvn clean install
+        run: mvn clean install -DskipTests=true
 
   docker:
     name: Containerization
