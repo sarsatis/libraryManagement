@@ -50,6 +50,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: Target-Artefacts
+          path: target
 
       - name: List directory
         run: |
