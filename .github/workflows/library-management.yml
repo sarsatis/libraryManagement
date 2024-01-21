@@ -1,0 +1,203 @@
+name: Library Management Workflow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - 'feature/*'
+
+
+jobs:
+  unit-testing:
+    name: Unit Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Build Maven project
+        run: mvn clean install
+
+  docker:
+    name: Containerization
+    needs: [unit-testing]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Dockerhub Login
+        uses: docker/login-action@v2.2.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Docker Build For Testing
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/librarymanagementsystem:${{ github.sha }}
+          build-args: |
+            NAME=librarymanagementsystem
+
+#
+#
+#  dev-deploy:
+#    if: contains(github.ref, 'feature/')
+#    needs: docker
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: development
+#      url: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
+#    outputs:
+#      APP_INGRESS_URL: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
+#    services:
+#      mongo-db:
+#        image: siddharth67/mongo-db:non-prod
+#        ports:
+#          - 27017:27017
+#    env:
+#      NAMESPACE: default
+#      REPLICAS: 1
+#      IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha }}
+#      # INGRESS_IP:  ${{ env.INGRESS_IP }}
+#      MONGO_URI: 'mongodb://localhost:27017/superData'
+#      MONGO_USERNAME: non-prod-user
+#      MONGO_PASSWORD: non-prod-password
+#    steps:
+#      - name: Checkout Repo
+#        uses: actions/checkout@v4
+#
+#      - name: Install kubectl CLI
+#        uses: azure/setup-kubectl@v3
+#        with:
+#          version: 'v1.26.0'
+#
+#      - name: Set Kubeconfig file
+#        uses: azure/k8s-set-context@v3
+#        with:
+#          method: kubeconfig
+#          kubeconfig: ${{ secrets.KUBECONFIG }}
+#
+#      - name: Fetch Kubernetes Cluster Details
+#        run: |
+#          kubectl version --short
+#          echo ---------------------------------------------------
+#          kubectl get nodes
+#          kubectl get ns
+#          kubectl get po
+#
+#      # To save something in Environment variable
+#      # - name: Save Nginx Ingress Controller IP as a GITHUB Environment Variable
+#      #   run: |
+#      #    echo "INGRESS_IP=$(kubectl -n ingress-nginx get services ingress-nginx-controller -o jsonpath="{.status.loadBalancer.ingress[0].ip}")" >> $GITHUB_ENV
+#
+#      - name: Replace Token in Manifest files
+#        uses: cschleiden/replace-tokens@v1
+#        with:
+#          tokenPrefix: '_{_'
+#          tokenSuffix: '_}_'
+#          files: '["kubernetes/development/*.yaml"]'
+#
+#
+#
+#      - name: Check files
+#        run: |
+#          cat kubernetes/development/*.yaml
+#
+#      - name: Create MongoDB Secret
+#        run: |
+#          kubectl -n ${{ env.NAMESPACE }} create secret generic mongo-db-creds \
+#          --from-literal=MONGO_URI=${{ env.MONGO_URI }} \
+#          --from-literal=MONGO_USERNAME=${{ env.MONGO_USERNAME }} \
+#          --from-literal=MONGO_PASSWORD=${{ env.MONGO_PASSWORD }} \
+#          --save-config \
+#          --dry-run=client \
+#          -o yaml | kubectl apply -f -
+#
+#      - name: Deploy to Dev Env
+#        run: |
+#          kubectl apply -f kubernetes/development/
+#
+#      - name: Set App Ingress Host URL
+#        id: set-ingress-host-address
+#        run: |
+#          echo "APP_INGRESS_HOST=Test" >> "$GITHUB_OUTPUT"
+#
+#  #   uses: ./.github/workflows/8.reuse-deployment.yml
+#  #   secrets:
+#  #     k8s-kubeconfig: ${{ secrets.KUBECONFIG }}
+#  #     mongodb-password: ${{ secrets.MONGO_PASSWORD}}
+#  #   with:
+#  #     mongodb-uri: ${{ vars.MONGO_URI }}
+#  #     environment: development
+#  #     k8s-manifest-dir: kubernetes/development/
+#
+#  dev-integration-testing:
+#    if: contains(github.ref, 'feature/')
+#    name: Dev Integration Testing
+#    needs: dev-deploy
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Test URL Output using CURL and JQ
+#        env:
+#          URL: ${{ needs.dev-deploy.outputs.APP_INGRESS_URL }}
+#        run: |
+#          echo $URL
+#          echo "--------------------------------------------"
+#
+#        #   curl https://$URL/live -s -k | jq -r .status | grep -i live
+#
+#  prod-deploy:
+#    if: github.ref == 'refs/heads/master'
+#    needs: docker
+#    uses: ./.github/workflows/8.reuse-deployment.yml
+#    secrets:
+#      k8s-kubeconfig: ${{ secrets.KUBECONFIG }}
+#      mongodb-password: ${{ secrets.MONGO_PASSWORD}}
+#    # To pass env it can only be passed using vars in repository while using resuable workflow
+#    with:
+#      mongodb-uri: ${{ vars.MONGO_URI }}
+#      environment: development
+#      k8s-manifest-dir: kubernetes/production/
+#
+#
+#  prod-integration-testing:
+#    name: Prod Integration Testing
+#    if: github.ref == 'refs/heads/master'
+#    needs: prod-deploy
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Test URL Output using CURL and JQ
+#        env:
+#          URL: ${{ needs.prod-deploy.outputs.application-url }}
+#        run: |
+#          echo $URL
+#          echo "--------------------------------------------"
+#          # curl https://$URL/live -s -k | jq -r .status | grep -i live
+
+  # slack-notification:
+  #   if: always()
+  #   name: Slack Notification
+  #   needs: [dev-integration-testing, prod-integration-testing]
+  #   continue-on-error: true
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Slack Notification
+  #     uses: rtCamp/action-slack-notify@v2
+  #     env:
+  #       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+  #       SLACK_CHANNEL: github-actions-channel-2
+  #       SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+  #     #  SLACK_ICON: https://gitlab.com/sidd-harth/solar-system/-/raw/main/images/saturn.png
+  #       SLACK_MESSAGE: ':hammer_and_wrench: Triggered by ${{github.actor}}'
+  #       SLACK_TITLE: Information
