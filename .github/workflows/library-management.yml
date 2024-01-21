@@ -25,6 +25,13 @@ jobs:
       - name: Build Maven project
         run: mvn clean install -DskipTests=true
 
+      - name: Archive Test Result
+        uses: actions/upload-artifact@v3
+        with:
+          name: Target-Artefacts
+          path: target
+          retention-days: 1
+
   docker:
     name: Containerization
     needs: [unit-testing]
@@ -38,6 +45,11 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Download Code Coverage Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: Target-Artefacts
 
       - name: Docker Build For Testing
         uses: docker/build-push-action@v4
