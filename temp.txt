@@ -18,3 +18,91 @@ pipeline {
         // Other stages...
     }
 }
+
+---------------------
+#!/bin/bash
+
+# Actuator health endpoint (assuming it's exposed via a service)
+ACTUATOR_ENDPOINT="http://your-canary-service/actuator/health"
+
+# Polling interval (in seconds)
+POLL_INTERVAL=30
+
+# Function to check actuator health
+check_actuator_health() {
+  RESPONSE=$(curl -s $ACTUATOR_ENDPOINT)
+  STATUS=$(echo $RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*$')
+  
+  if [ "$STATUS" == "UP" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Polling loop
+while true; do
+  echo "Checking actuator health..."
+  
+  if check_actuator_health; then
+    echo "Actuator is up and healthy."
+    break
+  else
+    echo "Actuator is not up yet. Waiting..."
+    sleep $POLL_INTERVAL
+  fi
+done
+
+echo "Canary instance is healthy. Proceeding with BDD tests."
+exit 0
+----------------------
+
+pipeline {
+    agent any
+    environment {
+        ACTUATOR_ENDPOINT = "http://your-canary-service/actuator/health"
+    }
+    stages {
+        stage('Wait for Canary Pods') {
+            steps {
+                script {
+                    def pollScript = """
+                    #!/bin/bash
+                    ACTUATOR_ENDPOINT="${env.ACTUATOR_ENDPOINT}"
+                    POLL_INTERVAL=30
+                    check_actuator_health() {
+                        RESPONSE=\$(curl -s \$ACTUATOR_ENDPOINT)
+                        STATUS=\$(echo \$RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*\$')
+                        if [ "\$STATUS" == "UP" ]; then
+                            return 0
+                        else
+                            return 1
+                        fi
+                    }
+                    while true; do
+                        echo "Checking actuator health..."
+                        if check_actuator_health; then
+                            echo "Actuator is up and healthy."
+                            break
+                        else
+                            echo "Actuator is not up yet. Waiting..."
+                            sleep \$POLL_INTERVAL
+                        fi
+                    done
+                    echo "Canary instance is healthy. Proceeding with BDD tests."
+                    exit 0
+                    """
+                    writeFile file: 'pollActuatorHealth.sh', text: pollScript
+                    sh 'chmod +x pollActuatorHealth.sh'
+                    sh './pollActuatorHealth.sh'
+                }
+            }
+        }
+        stage('Run BDD Tests') {
+            steps {
+                echo 'Running BDD tests...'
+                // Add your steps to run BDD tests here
+            }
+        }
+    }
+}
