@@ -1,0 +1,20 @@
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials('github-token-id') // GitHub token stored in Jenkins credentials
+    }
+    stages {
+        stage('Fetch PR Labels') {
+            steps {
+                script {
+                    def prNumber = env.ghprbPullId
+                    def repo = 'owner/repository'
+                    def response = sh(script: "curl -s -H \"Authorization: token ${env.GITHUB_TOKEN}\" -H \"Accept: application/vnd.github.v3+json\" https://api.github.com/repos/${repo}/issues/${prNumber}/labels", returnStdout: true).trim()
+                    def labels = readJSON(text: response)
+                    echo "Labels for PR #${prNumber}: ${labels*.name.join(', ')}"
+                }
+            }
+        }
+        // Other stages...
+    }
+}
