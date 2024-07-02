@@ -11,6 +11,53 @@ pipeline {
                     def repo = 'owner/repository'
                     def response = sh(script: "curl -s -H \"Authorization: token ${env.GITHUB_TOKEN}\" -H \"Accept: application/vnd.github.v3+json\" https://api.github.com/repos/${repo}/issues/${prNumber}/labels", returnStdout: true).trim()
                     def labels = readJSON(text: response)
+                    def appName = labels.find { it.name.startsWith('appname:') }?.name?.split(': ')[1]
+                    def releaseName = labels.find { it.name.startsWith('releaseName:') }?.name?.split(': ')[1]
+                    
+                    if (!appName || !releaseName) {
+                        error("Required labels not found.")
+                    }
+                    
+                    env.ACTUATOR_ENDPOINT = "https://sitsasasasaasas/${appName}/v1.0/actuator/health"
+                    env.RELEASE_NAME = releaseName
+                    
+                    echo "Labels for PR #${prNumber}: ${labels*.name.join(', ')}"
+                    echo "ACTUATOR_ENDPOINT: ${env.ACTUATOR_ENDPOINT}"
+                    echo "RELEASE_NAME: ${env.RELEASE_NAME}"
+                }
+            }
+        }
+        stage('Check Actuator Health') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'tls-crt-id', variable: 'TLS_CRT_PATH'),
+                    file(credentialsId: 'tls-key-id', variable: 'TLS_KEY_PATH')
+                ]) {
+                    sh """
+                    chmod +x path/to/your/script.sh
+                    path/to/your/script.sh \$TLS_CRT_PATH \$TLS_KEY_PATH \$ACTUATOR_ENDPOINT \$RELEASE_NAME
+                    """
+                }
+            }
+        }
+        // Other stages...
+    }
+}
+
+---
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials('github-token-id') // GitHub token stored in Jenkins credentials
+    }
+    stages {
+        stage('Fetch PR Labels') {
+            steps {
+                script {
+                    def prNumber = env.ghprbPullId
+                    def repo = 'owner/repository'
+                    def response = sh(script: "curl -s -H \"Authorization: token ${env.GITHUB_TOKEN}\" -H \"Accept: application/vnd.github.v3+json\" https://api.github.com/repos/${repo}/issues/${prNumber}/labels", returnStdout: true).trim()
+                    def labels = readJSON(text: response)
                     echo "Labels for PR #${prNumber}: ${labels*.name.join(', ')}"
                 }
             }
