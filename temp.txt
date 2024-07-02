@@ -79,7 +79,9 @@ pipeline {
 
                         check_actuator_health() {
                             echo "Polling Actuator Endpoint: \$ACTUATOR_ENDPOINT"
-                            RESPONSE=\$(curl -s --cert \$CERT_PATH --key \$KEY_PATH \$ACTUATOR_ENDPOINT)
+                            CURL_COMMAND="curl -s --cert \$CERT_PATH --key \$KEY_PATH \$ACTUATOR_ENDPOINT"
+                            echo "Formed Request: \$CURL_COMMAND"
+                            RESPONSE=\$(\$CURL_COMMAND)
                             STATUS=\$(echo \$RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*\$')
                             echo "Response: \$RESPONSE"
                             echo "Parsed Status: \$STATUS"
@@ -119,5 +121,6 @@ pipeline {
         }
     }
 }
+
 
 
