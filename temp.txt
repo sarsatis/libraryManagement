@@ -60,25 +60,43 @@ exit 0
 pipeline {
     agent any
     environment {
-        ACTUATOR_ENDPOINT = "http://your-canary-service/actuator/health"
+        ACTUATOR_ENDPOINT = "https://your-canary-service/actuator/health"
     }
     stages {
         stage('Wait for Canary Pods') {
             steps {
                 script {
+                    // Define paths to store the secrets in the workspace
+                    def certPath = 'cert.crt'
+                    def keyPath = 'key.key'
+
+                    // Fetch the certificate and key from Jenkins credentials and write to files
+                    withCredentials([file(credentialsId: 'your-cert-id', variable: 'CERT_FILE'),
+                                     file(credentialsId: 'your-key-id', variable: 'KEY_FILE')]) {
+                        sh "cp \$CERT_FILE ${certPath}"
+                        sh "cp \$KEY_FILE ${keyPath}"
+                    }
+
                     def pollScript = """
                     #!/bin/bash
                     ACTUATOR_ENDPOINT="${env.ACTUATOR_ENDPOINT}"
+                    CERT_PATH="${certPath}"
+                    KEY_PATH="${keyPath}"
                     POLL_INTERVAL=30
+
                     check_actuator_health() {
-                        RESPONSE=\$(curl -s \$ACTUATOR_ENDPOINT)
+                        echo "Polling Actuator Endpoint: \$ACTUATOR_ENDPOINT"
+                        RESPONSE=\$(curl -s --cert \$CERT_PATH --key \$KEY_PATH \$ACTUATOR_ENDPOINT)
                         STATUS=\$(echo \$RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*\$')
+                        echo "Response: \$RESPONSE"
+                        echo "Parsed Status: \$STATUS"
                         if [ "\$STATUS" == "UP" ]; then
                             return 0
                         else
                             return 1
                         fi
                     }
+
                     while true; do
                         echo "Checking actuator health..."
                         if check_actuator_health; then
@@ -89,6 +107,7 @@ pipeline {
                             sleep \$POLL_INTERVAL
                         fi
                     done
+
                     echo "Canary instance is healthy. Proceeding with BDD tests."
                     exit 0
                     """
@@ -106,3 +125,4 @@ pipeline {
         }
     }
 }
+
