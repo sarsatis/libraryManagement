@@ -126,6 +126,78 @@ pipeline {
     }
 }
 
+----
+
+#!/bin/bash
+ACTUATOR_ENDPOINT="$1"
+CERT_PATH="$2"
+KEY_PATH="$3"
+POLL_INTERVAL=30
+
+check_actuator_health() {
+    echo "Polling Actuator Endpoint: $ACTUATOR_ENDPOINT"
+    CURL_COMMAND="curl -s --cert $CERT_PATH --key $KEY_PATH $ACTUATOR_ENDPOINT"
+    echo "Formed Request: $CURL_COMMAND"
+    RESPONSE=$($CURL_COMMAND)
+    STATUS=$(echo $RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*$')
+    echo "Response: $RESPONSE"
+    echo "Parsed Status: $STATUS"
+    if [ "$STATUS" == "UP" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+while true; do
+    echo "Checking actuator health..."
+    if check_actuator_health; then
+        echo "Actuator is up and healthy."
+        break
+    else
+        echo "Actuator is not up yet. Waiting..."
+        sleep $POLL_INTERVAL
+    fi
+done
+
+echo "Canary instance is healthy. Proceeding with BDD tests."
+exit 0
+
+pipeline {
+    agent any
+    environment {
+        ACTUATOR_ENDPOINT = "https://your-canary-service/actuator/health"
+    }
+    stages {
+        stage('Wait for Canary Pods') {
+            steps {
+                script {
+                    // Fetch the certificate and key from Jenkins credentials
+                    withCredentials([string(credentialsId: 'SIT_TLS_CRT', variable: 'CERT_CONTENT'),
+                                     string(credentialsId: 'SIT_TLS_KEY', variable: 'KEY_CONTENT')]) {
+
+                        // Write the certificate and key to the specified paths
+                        writeFile file: 'path/tls.crt', text: CERT_CONTENT
+                        writeFile file: 'path/tls.key', text: KEY_CONTENT
+
+                        // Write the poll script to the workspace
+                        writeFile file: 'pollActuatorHealth.sh', text: libraryResource('path/to/pollActuatorHealth.sh')
+                        sh 'chmod +x pollActuatorHealth.sh'
+
+                        // Execute the poll script
+                        sh './pollActuatorHealth.sh "${env.ACTUATOR_ENDPOINT}" "path/tls.crt" "path/tls.key"'
+                    }
+                }
+            }
+        }
+        stage('Run BDD Tests') {
+            steps {
+                echo 'Running BDD tests...'
+                // Add your steps to run BDD tests here
+            }
+        }
+    }
+}
 
 
 
