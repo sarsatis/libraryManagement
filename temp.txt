@@ -67,14 +67,18 @@ pipeline {
             steps {
                 script {
                     // Fetch the certificate and key from Jenkins credentials
-                    withCredentials([file(credentialsId: 'your-cert-id', variable: 'CERT_FILE'),
-                                     file(credentialsId: 'your-key-id', variable: 'KEY_FILE')]) {
+                    withCredentials([string(credentialsId: 'SIT_TLS_CRT', variable: 'CERT_CONTENT'),
+                                     string(credentialsId: 'SIT_TLS_KEY', variable: 'KEY_CONTENT')]) {
+
+                        // Write the certificate and key to the specified paths
+                        writeFile file: 'path/tls.crt', text: CERT_CONTENT
+                        writeFile file: 'path/tls.key', text: KEY_CONTENT
 
                         def pollScript = """
                         #!/bin/bash
                         ACTUATOR_ENDPOINT="${env.ACTUATOR_ENDPOINT}"
-                        CERT_PATH="${CERT_FILE}"
-                        KEY_PATH="${KEY_FILE}"
+                        CERT_PATH="path/tls.crt"
+                        KEY_PATH="path/tls.key"
                         POLL_INTERVAL=30
 
                         check_actuator_health() {
@@ -121,6 +125,7 @@ pipeline {
         }
     }
 }
+
 
 
 
