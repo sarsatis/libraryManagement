@@ -66,54 +66,48 @@ pipeline {
         stage('Wait for Canary Pods') {
             steps {
                 script {
-                    // Define paths to store the secrets in the workspace
-                    def certPath = 'cert.crt'
-                    def keyPath = 'key.key'
-
-                    // Fetch the certificate and key from Jenkins credentials and write to files
+                    // Fetch the certificate and key from Jenkins credentials
                     withCredentials([file(credentialsId: 'your-cert-id', variable: 'CERT_FILE'),
                                      file(credentialsId: 'your-key-id', variable: 'KEY_FILE')]) {
-                        sh "cp \$CERT_FILE ${certPath}"
-                        sh "cp \$KEY_FILE ${keyPath}"
+
+                        def pollScript = """
+                        #!/bin/bash
+                        ACTUATOR_ENDPOINT="${env.ACTUATOR_ENDPOINT}"
+                        CERT_PATH="${CERT_FILE}"
+                        KEY_PATH="${KEY_FILE}"
+                        POLL_INTERVAL=30
+
+                        check_actuator_health() {
+                            echo "Polling Actuator Endpoint: \$ACTUATOR_ENDPOINT"
+                            RESPONSE=\$(curl -s --cert \$CERT_PATH --key \$KEY_PATH \$ACTUATOR_ENDPOINT)
+                            STATUS=\$(echo \$RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*\$')
+                            echo "Response: \$RESPONSE"
+                            echo "Parsed Status: \$STATUS"
+                            if [ "\$STATUS" == "UP" ]; then
+                                return 0
+                            else
+                                return 1
+                            fi
+                        }
+
+                        while true; do
+                            echo "Checking actuator health..."
+                            if check_actuator_health; then
+                                echo "Actuator is up and healthy."
+                                break
+                            else
+                                echo "Actuator is not up yet. Waiting..."
+                                sleep \$POLL_INTERVAL
+                            fi
+                        done
+
+                        echo "Canary instance is healthy. Proceeding with BDD tests."
+                        exit 0
+                        """
+                        writeFile file: 'pollActuatorHealth.sh', text: pollScript
+                        sh 'chmod +x pollActuatorHealth.sh'
+                        sh './pollActuatorHealth.sh'
                     }
-
-                    def pollScript = """
-                    #!/bin/bash
-                    ACTUATOR_ENDPOINT="${env.ACTUATOR_ENDPOINT}"
-                    CERT_PATH="${certPath}"
-                    KEY_PATH="${keyPath}"
-                    POLL_INTERVAL=30
-
-                    check_actuator_health() {
-                        echo "Polling Actuator Endpoint: \$ACTUATOR_ENDPOINT"
-                        RESPONSE=\$(curl -s --cert \$CERT_PATH --key \$KEY_PATH \$ACTUATOR_ENDPOINT)
-                        STATUS=\$(echo \$RESPONSE | grep -o '"status":"[^"]*"' | grep -o '[^"]*\$')
-                        echo "Response: \$RESPONSE"
-                        echo "Parsed Status: \$STATUS"
-                        if [ "\$STATUS" == "UP" ]; then
-                            return 0
-                        else
-                            return 1
-                        fi
-                    }
-
-                    while true; do
-                        echo "Checking actuator health..."
-                        if check_actuator_health; then
-                            echo "Actuator is up and healthy."
-                            break
-                        else
-                            echo "Actuator is not up yet. Waiting..."
-                            sleep \$POLL_INTERVAL
-                        fi
-                    done
-
-                    echo "Canary instance is healthy. Proceeding with BDD tests."
-                    exit 0
-                    """
-                    writeFile file: 'pollActuatorHealth.sh', text: pollScript
-                    sh 'chmod +x pollActuatorHealth.sh'
-                    sh './pollActuatorHealth.sh'
                 }
             }
         }
@@ -125,4 +119,5 @@ pipeline {
         }
     }
 }
+
 
