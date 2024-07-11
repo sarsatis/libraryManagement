@@ -1,3 +1,6 @@
+java -ea -Dproxy_user=8516343 -Dproxy_pass=Aug@123! -Dencryption_key=SCA_TEAM@2020 -Dspring.profiles.active=OCPSIT -cp "path/to/your/classpath/*" io.cucumber.core.cli.Main "C:/Users/8516343/OneDrive - Lloyds Banking Group/Desktop/My Laptop/Projects/auth-code-api/AcceptanceTests/src/test/resources/features/ViaGateway.feature" --name "APOST request to AuthCode authentication\\code for Brand \"LYDS\", Channel \"RC\", SubChannel \"\\\"; SourceChannel \"\\\"; should return valid authCodeRequestJWS token" --tags "@yourTag"
+
+---
 pipeline {
     agent any
     environment {
