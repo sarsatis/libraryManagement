@@ -1,27 +1,38 @@
-success {
+post {
+        success {
             script {
-                def githubUrl = "https://api.github.com/repos/your-repo-owner/your-repo/statuses/${env.GIT_COMMIT}"
-                def payload = """{
+                // Fetch the latest commit SHA for the PR
+                def response = sh(script: "curl -s -H \"Authorization: token ${env.GITHUB_TOKEN}\" https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/pulls/${env.PR_NUMBER}", returnStdout: true).trim()
+                def json = readJSON text: response
+                def commitSha = json.head.sha
+                
+                // Update the status for the commit
+                def statusPayload = """{
                     "state": "success",
                     "description": "Build succeeded",
                     "context": "continuous-integration/jenkins"
                 }"""
-
-                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${payload}' ${githubUrl}"
+                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${statusPayload}' https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha}"
             }
         }
         failure {
             script {
-                def githubUrl = "https://api.github.com/repos/your-repo-owner/your-repo/statuses/${env.GIT_COMMIT}"
-                def payload = """{
+                // Fetch the latest commit SHA for the PR
+                def response = sh(script: "curl -s -H \"Authorization: token ${env.GITHUB_TOKEN}\" https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/pulls/${env.PR_NUMBER}", returnStdout: true).trim()
+                def json = readJSON text: response
+                def commitSha = json.head.sha
+                
+                // Update the status for the commit
+                def statusPayload = """{
                     "state": "failure",
                     "description": "Build failed",
                     "context": "continuous-integration/jenkins"
                 }"""
-
-                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${payload}' ${githubUrl}"
+                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${statusPayload}' https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha}"
             }
         }
+    }
+}
 
 ---
 pipeline {
