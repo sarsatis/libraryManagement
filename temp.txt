@@ -1,4 +1,25 @@
-
+post {
+        success {
+            script {
+                def ghprbPullId = env.ghprbPullId
+                if (ghprbPullId) {
+                    def context = 'continuous-integration/jenkins'
+                    def description = 'Build succeeded'
+                    githubNotify context: context, status: 'SUCCESS', description: description
+                }
+            }
+        }
+        failure {
+            script {
+                def ghprbPullId = env.ghprbPullId
+                if (ghprbPullId) {
+                    def context = 'continuous-integration/jenkins'
+                    def description = 'Build failed'
+                    githubNotify context: context, status: 'FAILURE', description: description
+                }
+            }
+        }
+    }
 
 ---
 pipeline {
