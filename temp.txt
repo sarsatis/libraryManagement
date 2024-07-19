@@ -1,25 +1,27 @@
-post {
-        success {
+success {
             script {
-                def ghprbPullId = env.ghprbPullId
-                if (ghprbPullId) {
-                    def context = 'continuous-integration/jenkins'
-                    def description = 'Build succeeded'
-                    githubNotify context: context, status: 'SUCCESS', description: description
-                }
+                def githubUrl = "https://api.github.com/repos/your-repo-owner/your-repo/statuses/${env.GIT_COMMIT}"
+                def payload = """{
+                    "state": "success",
+                    "description": "Build succeeded",
+                    "context": "continuous-integration/jenkins"
+                }"""
+
+                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${payload}' ${githubUrl}"
             }
         }
         failure {
             script {
-                def ghprbPullId = env.ghprbPullId
-                if (ghprbPullId) {
-                    def context = 'continuous-integration/jenkins'
-                    def description = 'Build failed'
-                    githubNotify context: context, status: 'FAILURE', description: description
-                }
+                def githubUrl = "https://api.github.com/repos/your-repo-owner/your-repo/statuses/${env.GIT_COMMIT}"
+                def payload = """{
+                    "state": "failure",
+                    "description": "Build failed",
+                    "context": "continuous-integration/jenkins"
+                }"""
+
+                sh "curl -X POST -H \"Authorization: token ${env.GITHUB_TOKEN}\" -d '${payload}' ${githubUrl}"
             }
         }
-    }
 
 ---
 pipeline {
