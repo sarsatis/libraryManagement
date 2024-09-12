@@ -8,6 +8,7 @@ pipeline:
     ci:
       codebase:
         connectorRef: githubconnector
+        repoName: libraryManagement
         build: <+input>
   stages:
     - stage:
@@ -27,8 +28,8 @@ pipeline:
             steps:
               - step:
                   type: Run
-                  name: Run_1
-                  identifier: Run_1
+                  name: Maven Build
+                  identifier: Maven_Build
                   spec:
                     connectorRef: account.harnessImage
                     image: maven:3.9.9-amazoncorretto-17-al2023
