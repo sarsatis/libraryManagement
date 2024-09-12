@@ -32,11 +32,10 @@ pipeline:
                   identifier: Run_1
                   spec:
                     connectorRef: account.harnessImage
-                    image: maven:3.8.6-openjdk-17
                     shell: Sh
                     command: |-
                       java --version
-                      mvn clean install -DskipTests
+                      mvn clean install -DskipTests -Djava.version=17
               - step:
                   type: BuildAndPushDockerRegistry
                   name: BuildAndPushDockerRegistry_1
