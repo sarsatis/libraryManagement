@@ -32,7 +32,9 @@ pipeline:
                   identifier: Run_1
                   spec:
                     shell: Sh
-                    command: mvn clean install
+                    command: |-
+                      java --version
+                      mvn clean install -DskipTests
               - step:
                   type: BuildAndPushDockerRegistry
                   name: BuildAndPushDockerRegistry_1
