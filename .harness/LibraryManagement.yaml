@@ -31,6 +31,8 @@ pipeline:
                   name: Run_1
                   identifier: Run_1
                   spec:
+                    connectorRef: docker_connector
+                    image: maven:3.8.6-openjdk-17
                     shell: Sh
                     command: |-
                       java --version
