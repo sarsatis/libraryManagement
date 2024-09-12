@@ -4,12 +4,6 @@ pipeline:
   projectIdentifier: default_project
   orgIdentifier: default
   tags: {}
-  properties:
-    ci:
-      codebase:
-        connectorRef: GithubOrgLevelConnector
-        repoName: libraryManagement
-        build: <+input>
   stages:
     - stage:
         name: ci-stage
@@ -17,7 +11,7 @@ pipeline:
         description: ""
         type: CI
         spec:
-          cloneCodebase: true
+          cloneCodebase: false
           platform:
             os: Linux
             arch: Amd64
@@ -31,7 +25,8 @@ pipeline:
                   name: Run_1
                   identifier: Run_1
                   spec:
-                    container: shinseiki/maven-openjdk-17
+                    connectorRef: account.harnessImage
+                    image: eclipse-temurin:17-jdk-alpine
                     shell: Sh
                     command: |-
                       java --version
@@ -45,3 +40,6 @@ pipeline:
                     repo: sarthaksatish/librarymanagementsystem
                     tags:
                       - latest
+          caching:
+            enabled: true
+            paths: []
