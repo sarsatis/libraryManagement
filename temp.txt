@@ -1,3 +1,6 @@
+kubectl get secret secretname -o jsonpath='{.data.ca\.crt}' | base64 --decode | awk 'BEGIN {c=0;} /-----BEGIN CERTIFICATE-----/{if (c++ > 0) print ""; print; next} {print}' | openssl x509 -text -noout
+---
+
  def branchExists = sh(
                             script: """
                             curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GITHUB_TOKEN}" \
