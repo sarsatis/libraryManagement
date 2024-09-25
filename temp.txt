@@ -1,4 +1,5 @@
-kubectl get secret secretname -o jsonpath='{.data.ca\.crt}' | base64 --decode | awk 'BEGIN {c=0;} /-----BEGIN CERTIFICATE-----/{if (c++ > 0) print ""; print; next} {print}' | openssl x509 -text -noout
+openssl crl2pkcs7 -nocrl -certfile ca.crt | openssl pkcs7 -print_certs -text -noout
+
 ---
 
  def branchExists = sh(
