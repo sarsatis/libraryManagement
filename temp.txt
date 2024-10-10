@@ -1,3 +1,49 @@
+oc patch virtualservice vs-state-mgmt-canary-svc-svc -n default --type=json -p='[{"op": "add", "path": "/spec/http/0", "value": {"match": [{"headers": {"reg-channel-version": {"exact": "ocp-gc"}}}, {"uri": {"prefix": "/core/state-mgmt-service/v1"}}], "route": [{"destination": {"host": "iau-state-mgmt-core-service", "port": {"number": 8080}, "subset": "iau-state-mgmt-core-service-ocp-gc"}}]}}]'
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: remove-matcher-job
+  namespace: default  # Change this if needed
+  annotations:
+    argocd.argoproj.io/hook: PostDelete
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      containers:
+      - name: remove-matcher
+        image: bitnami/kubectl:latest  # Using a lightweight image with kubectl
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          #!/bin/bash
+
+          # Define variables
+          VIRTUALSERVICE_NAME="vs-state-mgmt-canary-svc-svc"
+          NAMESPACE="default"
+          SUBSET_NAME="iau-state-mgmt-core-service-ocp-gc"
+
+          # Get the current VirtualService configuration
+          MATCHER_INDEX=$(kubectl get virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE -o jsonpath='{range .spec.http[*]}{.route[*].destination.subset}{"\n"}{end}' | grep -n $SUBSET_NAME | cut -d: -f1)
+
+          # Check if the matcher exists
+          if [[ -n $MATCHER_INDEX ]]; then
+              # Adjust index to match JSON path
+              JSON_INDEX=$((MATCHER_INDEX - 1))
+
+              # Remove the matcher
+              kubectl patch virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE --type=json -p="[{'op': 'remove', 'path': '/spec/http/$JSON_INDEX'}]"
+              echo "Matcher with subset '$SUBSET_NAME' has been removed."
+          else
+              echo "No matcher found with subset '$SUBSET_NAME'."
+          fi
+      restartPolicy: Never
+
+
+---
 openssl crl2pkcs7 -nocrl -certfile ca.crt | openssl pkcs7 -print_certs -text -noout
 
 ---
