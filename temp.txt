@@ -2,6 +2,56 @@
 
 # Variables
 VIRTUALSERVICE_NAME="vs-state-mgmt-canary-svc-svc"
+NAMESPACE="<namespace>"  # Replace with your namespace
+
+echo "Fetching VirtualService $VIRTUALSERVICE_NAME from namespace $NAMESPACE..."
+
+# Get the VirtualService JSON
+virtual_service=$(oc get virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE -o json)
+
+if [ $? -ne 0 ]; then
+  echo "Failed to fetch VirtualService. Please check the name and namespace."
+  exit 1
+fi
+
+echo "Successfully fetched VirtualService. Now checking for route with 'reg-channel-version: ocp-svc-test'..."
+
+# Find the index of the route with the ocp-svc-test header
+route_index=$(echo $virtual_service | jq -r '.spec.http | to_entries[] | select(.value.match[].headers["reg-channel-version"].exact == "ocp-svc-test") | .key')
+
+# Debugging: Print the full http section for easier visibility
+echo "HTTP section of the VirtualService:"
+echo $virtual_service | jq '.spec.http'
+
+# Check if the route exists
+if [ -z "$route_index" ]; then
+  echo "No route found with 'reg-channel-version: ocp-svc-test' in VirtualService $VIRTUALSERVICE_NAME."
+  exit 0  # Exit without error if the route doesn't exist
+else
+  echo "Route with 'reg-channel-version: ocp-svc-test' found at index $route_index."
+  
+  # Debugging: Print the exact match that will be deleted
+  echo "The following route will be deleted:"
+  echo $virtual_service | jq ".spec.http[$route_index]"
+
+  # Delete the route using the identified index
+  echo "Proceeding to delete the route..."
+  oc patch virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE \
+    --type='json' \
+    -p="[{\"op\": \"remove\", \"path\": \"/spec/http/$route_index\"}]"
+
+  if [ $? -eq 0 ]; then
+    echo "Route with 'reg-channel-version: ocp-svc-test' successfully deleted from VirtualService $VIRTUALSERVICE_NAME."
+  else
+    echo "Failed to delete the route. Please check the output above for more details."
+  fi
+fi
+
+---
+#!/bin/bash
+
+# Variables
+VIRTUALSERVICE_NAME="vs-state-mgmt-canary-svc-svc"
 NAMESPACE="<namespace>"  # Replace with the correct namespace
 
 # Get the VirtualService JSON
