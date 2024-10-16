@@ -1,3 +1,29 @@
+#!/bin/bash
+
+# Variables
+VIRTUALSERVICE_NAME="vs-state-mgmt-canary-svc-svc"
+NAMESPACE="<namespace>"  # Replace with the correct namespace
+
+# Get the VirtualService JSON
+virtual_service=$(oc get virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE -o json)
+
+# Find the index of the route with the ocp-gc header
+route_index=$(echo $virtual_service | jq -r '.spec.http | to_entries[] | select(.value.match[].headers["reg-channel-version"].exact == "ocp-gc") | .key')
+
+# Check if the route exists
+if [ -z "$route_index" ]; then
+  echo "Route with 'reg-channel-version: ocp-gc' header not found in VirtualService $VIRTUALSERVICE_NAME."
+  exit 1
+fi
+
+# Delete the route using the identified index
+oc patch virtualservice $VIRTUALSERVICE_NAME -n $NAMESPACE \
+  --type='json' \
+  -p="[{\"op\": \"remove\", \"path\": \"/spec/http/$route_index\"}]"
+
+echo "Route with 'reg-channel-version: ocp-gc' header deleted from VirtualService $VIRTUALSERVICE_NAME."
+
+---
 oc patch virtualservice vs-state-mgmt-canary-svc-svc -n default --type=json -p='[{"op": "add", "path": "/spec/http/0", "value": {"match": [{"headers": {"reg-channel-version": {"exact": "ocp-gc"}}}, {"uri": {"prefix": "/core/state-mgmt-service/v1"}}], "route": [{"destination": {"host": "iau-state-mgmt-core-service", "port": {"number": 8080}, "subset": "iau-state-mgmt-core-service-ocp-gc"}}]}}]'
 
 ---
