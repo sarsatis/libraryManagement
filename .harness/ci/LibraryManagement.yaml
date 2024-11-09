@@ -1,0 +1,48 @@
+pipeline:
+  name: LibraryManagement
+  identifier: LibraryManagement
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        connectorRef: GithubOrgLevelConnector
+        repoName: libraryManagement
+        build: <+input>
+  stages:
+    - stage:
+        name: Build
+        identifier: Build
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Run_1
+                  identifier: Run_1
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: maven:3.9.9-amazoncorretto-17-al2023
+                    shell: Sh
+                    command: |-
+                      java --version
+                      mvn clean install -DskipTests
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: BuildAndPushDockerRegistry_1
+                  identifier: BuildAndPushDockerRegistry_1
+                  spec:
+                    connectorRef: docker_connector
+                    repo: sarthaksatish/librarymanagementsystem
+                    tags:
+                      - latest
