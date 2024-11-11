@@ -1,3 +1,10 @@
+pipeline_name = length(regex(".*-gl$", each.value.repo_name)) > 0 ? substr(each.value.repo_name, 0, length(each.value.repo_name) - 3) : each.value.repo_name
+
+      # Calculate pipeline_identifier (remove -gl and replace - with space)
+      pipeline_identifier = length(regex(".*-gl$", each.value.repo_name)) > 0 ? 
+        replace(substr(each.value.repo_name, 0, length(each.value.repo_name) - 3), "-", " ") : 
+        replace(each.value.repo_name, "-", " ")
+---
 #!/bin/bash
 
 # Variables
