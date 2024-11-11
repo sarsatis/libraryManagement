@@ -1,8 +1,8 @@
- # Calculate pipeline_name
-      pipeline_name = regex(".*-gl$", each.value.repo_name) != "" ? substr(each.value.repo_name, 0, length(each.value.repo_name) - 3) : each.value.repo_name
+# Calculate pipeline_name: Remove -gl if it ends with -gl
+      pipeline_name = endswith(each.value.repo_name, "-gl") ? substr(each.value.repo_name, 0, length(each.value.repo_name) - 3) : each.value.repo_name
 
-      # Calculate pipeline_identifier (replace - with space, remove -gl if present)
-      pipeline_identifier = regex(".*-gl$", each.value.repo_name) != "" ? 
+      # Calculate pipeline_identifier: Replace - with space and remove -gl if it ends with -gl
+      pipeline_identifier = endswith(each.value.repo_name, "-gl") ? 
         replace(substr(each.value.repo_name, 0, length(each.value.repo_name) - 3), "-", " ") : 
         replace(each.value.repo_name, "-", " ")
 ---
