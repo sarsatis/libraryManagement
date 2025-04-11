@@ -1,0 +1,17 @@
+---
+- name: List all directories and files inside the 'files' directory
+  find:
+    paths: "{{ playbook_dir }}/files"  # Replace this with the path to your 'files' directory
+    recurse: yes  # Search recursively in subdirectories
+  register: found_files
+
+- name: Display directory structure with folders and files
+  debug:
+    msg: |
+      {%- for item in found_files.files %}
+        {%- if item.isdir %}
+          Directory: {{ item.path }}
+        {%- else %}
+          File: {{ item.path }}
+        {%- endif %}
+      {%- endfor %}
