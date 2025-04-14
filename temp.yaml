@@ -1,3 +1,41 @@
+
+import os
+import json
+import uuid
+import requests
+
+def download_scan_report(region, scan_arn):
+    client = get_inspector_client(region)
+    response = client.get_cis_scan_report(
+        reportFormat='CSV',
+        scanArn=scan_arn,
+        targetAccounts=['468896299932']
+    )
+
+    print(f"Report URL response for scan {scan_arn}:")
+    print(json.dumps(response, indent=4, default=convert_datetime))
+
+    # Get absolute path to the sourcefiles directory
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../..'))
+    destination_folder = os.path.join(project_root, 'roles/data_ingestion/sourcefiles')
+    os.makedirs(destination_folder, exist_ok=True)
+
+    unique_id = uuid.uuid4()
+
+    if 'url' in response:
+        res = requests.get(response['url'])
+        if res.status_code == 200:
+            filename = f'report_{region}_{unique_id}.csv'
+            filepath = os.path.join(destination_folder, filename)
+            with open(filepath, 'wb') as file:
+                file.write(res.content)
+            print(f"Report downloaded for {region} to {filepath}")
+        else:
+            print(f"Failed to download report for {region}")
+    else:
+        print(f"No URL found for scan ARN {scan_arn} in {region}")
+
+
 ---
 - name: List all directories and files inside the 'files' directory
   find:
