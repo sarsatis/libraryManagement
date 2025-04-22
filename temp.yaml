@@ -53,3 +53,14 @@ def download_scan_report(region, scan_arn):
           File: {{ item.path }}
         {%- endif %}
       {%- endfor %}
+      
+- name: Get all files and directories under a path
+  find:
+    paths: "{{ role_path }}/files"
+    recurse: yes
+  register: all_items
+
+- name: Print directory structure
+  debug:
+    msg: "{{ item.path | regex_replace(role_path + '/', '') }}"
+  loop: "{{ all_items.files | sort(attribute='path') }}"
