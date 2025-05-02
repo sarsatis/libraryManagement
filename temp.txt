@@ -1,3 +1,47 @@
+import os
+import json
+import yaml
+
+# Load waivers.yaml
+with open("waivers.yaml", "r") as f:
+    waivers = yaml.safe_load(f)
+
+waiver_map = {}
+for platform, items in waivers.items():
+    for item in items:
+        platform_name = item["platform"]
+        waiver_ids = item.get("waivers_id", [])
+        waiver_map[platform_name] = set(waiver_ids)
+
+# Directory containing JSON files
+source_dir = "sourcefiles"
+
+# Process each JSON file
+for filename in os.listdir(source_dir):
+    if filename.endswith(".json"):
+        filepath = os.path.join(source_dir, filename)
+        
+        with open(filepath, "r") as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                print(f"Skipping invalid JSON: {filename}")
+                continue
+
+        platform = data.get("platform")
+        check_id = data.get("id")
+
+        if platform in waiver_map and check_id in waiver_map[platform]:
+            if data.get("status") != "skipped":
+                data["status"] = "skipped"
+                print(f"Updated status to skipped in: {filename}")
+
+                # Write back to file
+                with open(filepath, "w") as f:
+                    json.dump(data, f, indent=2)
+
+
+---------------
 # Calculate pipeline_name: Remove -gl if it ends with -gl
       pipeline_name = endswith(each.value.repo_name, "-gl") ? substr(each.value.repo_name, 0, length(each.value.repo_name) - 3) : each.value.repo_name
 
