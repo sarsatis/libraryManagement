@@ -20,25 +20,31 @@ source_dir = "sourcefiles"
 for filename in os.listdir(source_dir):
     if filename.endswith(".json"):
         filepath = os.path.join(source_dir, filename)
-        
-        with open(filepath, "r") as f:
+
+        with open(filepath, "r", encoding="utf-8") as f:
             try:
                 data = json.load(f)
             except json.JSONDecodeError:
                 print(f"Skipping invalid JSON: {filename}")
                 continue
 
-        platform = data.get("platform")
-        check_id = data.get("id")
-
-        if platform in waiver_map and check_id in waiver_map[platform]:
-            if data.get("status") != "skipped":
-                data["status"] = "skipped"
-                print(f"Updated status to skipped in: {filename}")
-
-                # Write back to file
-                with open(filepath, "w") as f:
+        # Check if it's a list of objects
+        if isinstance(data, list):
+            modified = False
+            for item in data:
+                platform = item.get("platform")
+                check_id = item.get("id")
+                if platform in waiver_map and check_id in waiver_map[platform]:
+                    if item.get("status") != "skipped":
+                        item["status"] = "skipped"
+                        modified = True
+            if modified:
+                with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
+                print(f"Updated entries in: {filename}")
+        else:
+            print(f"Unexpected JSON format (not a list) in: {filename}")
+
 
 
 ---------------
