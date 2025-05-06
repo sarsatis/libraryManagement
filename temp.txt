@@ -1,3 +1,68 @@
+I need to validate Amazon Inspector 2 scan results against GCS-approved CIS benchmark profiles,
+so that I can update waivers.yaml with the correct waiver IDs for approved rules across supported platforms.
+
+Description
+The task involves automating the comparison between scan results from Amazon Inspector 2 (which follows CIS benchmarks) and an Excel list of approved CIS rules provided by the GCS (Governance, Compliance & Security) team. The goal is to identify which findings from Inspector 2 are approved by GCS and should therefore be added to waivers.yaml under the corresponding platform.
+
+Supported platforms include:
+
+amazon_linux_2023
+
+amazon_linux_2
+
+microsoft_windows_server_2022
+
+microsoft_windows_server_2019
+
+rocky_rocky_linux_8
+
+The final output is an updated waivers.yaml file that lists all approved waiver_ids under the correct platform, so they can be processed for exemption downstream.
+
+Acceptance Criteria
+Input Handling:
+
+The script accepts:
+
+Amazon Inspector 2 scan output (in JSON format).
+
+GCS-approved profile list (in Excel or CSV format).
+
+Existing waivers.yaml file.
+
+Data Comparison:
+
+The script matches CIS benchmark IDs (or equivalent identifiers) between the Inspector 2 scan and GCS list.
+
+Only exact matches (by ID) are considered approved.
+
+Platform-Specific Logic:
+
+The comparison is scoped to the five supported platforms.
+
+Waivers are grouped and written under their respective platform names in waivers.yaml.
+
+YAML Update:
+
+If waivers.yaml exists, it is updated in-place with new waiver IDs (duplicates are avoided).
+
+If it doesn't exist, the script creates a new file with correct structure.
+
+Validation:
+
+The script logs:
+
+Total number of findings scanned.
+
+Number of approved waivers added per platform.
+
+Any findings that did not match an approved profile.
+
+Error Handling:
+
+Graceful handling of malformed files, unsupported platforms, or mismatched formats.
+
+Alerts/logs are generated for any inconsistencies.
+---
 Description
 I need to write a Python script that reads waiver IDs from a waivers.yaml file and updates the status of matching entries in a list of JSON files,
 so that the JSON files reflect which waiver checks should be marked as "waived" for specific platforms.
