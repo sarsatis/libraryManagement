@@ -1,3 +1,62 @@
+# 📦 chf_data_ingestion
+
+`chf_data_ingestion` is an automated pipeline for retrieving, processing, and publishing AWS Inspector 2 scan reports. This system supports CIS compliance validation and integrates waiver handling based on a centrally maintained `waivers.yaml` file. The processed data is finally sent to Splunk for monitoring and reporting.
+
+---
+
+## 🔄 Workflow Summary
+
+The pipeline is divided into three main stages, executed via **Ansible** tasks:
+
+### 1. 🟡 Download Scan Reports
+- Connects to **AWS Inspector 2**.
+- Downloads the latest **CIS benchmark scan reports** in Excel format.
+- Saves the files in the `source/` directory.
+
+### 2. 🟢 Transform and Clean Data
+- Reads Excel files from `source/`.
+- Cleans and converts them into structured **JSON files**.
+- Outputs the result to the `output/` directory.
+
+### 3. 🔵 Apply Waivers
+- Reads the cleaned JSON data.
+- Cross-references findings with waiver rules in `waivers.yaml`.
+- Marks matching entries as **waived** based on platform and waiver ID.
+
+### 4. 🔁 Publish to Splunk
+- Transformed and waiver-processed JSON data is sent to **Splunk** for centralized compliance tracking.
+
+---
+
+## ⏰ Automation & Scheduling
+
+- Each stage is triggered as an **Ansible task**:
+  - `download`
+  - `transform`
+  - `waivers`
+
+- The tasks are scheduled in **Ansible Tower** to run automatically:
+
+  > **Schedule:** Every **Monday at 09:00 AM (London time)**
+
+---
+
+## 📁 Folder Structure
+
+```bash
+chf_data_ingestion/
+├── source/         # Raw Excel scan reports from AWS Inspector
+├── output/         # Cleaned and transformed JSON data
+├── waivers.yaml    # Waiver definitions by platform and ID
+├── playbooks/
+│   ├── download.yml
+│   ├── transform.yml
+│   └── waivers.yml
+├── README.md       # Project documentation
+
+
+
+----
 I need to validate Amazon Inspector 2 scan results against GCS-approved CIS benchmark profiles,
 so that I can update waivers.yaml with the correct waiver IDs for approved rules across supported platforms.
 
