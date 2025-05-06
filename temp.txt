@@ -1,3 +1,46 @@
+Description
+Create a Python script that processes a list of JSON files and updates the status of specific fields based on the waiver rules defined in a waivers.yaml file. Each JSON file represents a data structure containing checks with associated waiver_ids and status. The script should read the waivers.yaml file to identify which waiver_ids are to be waived (e.g., status changed to "waived"), matching by platform. The script then updates the status field of each matching waiver_id in the JSON files.
+
+The JSON files are located in a predefined directory and follow a consistent structure.
+
+Acceptance Criteria
+YAML Parsing:
+
+The script correctly reads and parses waivers.yaml.
+
+The YAML file contains platforms and lists of waiver IDs under each platform.
+
+JSON Processing:
+
+The script reads all .json files from a specified directory.
+
+Each JSON file contains a list or dictionary of items, each with at least waiver_id, status, and platform fields.
+
+Matching Logic:
+
+For each JSON entry, if the platform matches an entry in waivers.yaml, and the waiver_id is in the corresponding waiver_id list, then update its status to "waived".
+
+File Update:
+
+The modified JSON data is saved back to the file or to a new file (based on configuration or prompt).
+
+No JSON files are updated if there are no matches.
+
+Logging & Output:
+
+The script logs the number of updated entries per file.
+
+Errors in reading or writing files are logged gracefully.
+
+Error Handling:
+
+Proper error handling is in place for missing fields, malformed JSON, or YAML syntax errors.
+
+Test Case:
+
+A test directory with sample JSON files and a sample waivers.yaml can be processed without errors and produces correct output.
+
+----
 import os
 import json
 import yaml
