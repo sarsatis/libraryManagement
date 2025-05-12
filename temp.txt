@@ -1,3 +1,31 @@
+# 📄 CHANGELOG
+
+## [1.0.0] - 2025-05-12
+
+### ✅ Added
+- Initial project setup for `chf_data_ingestion`.
+- Directory structure including `source/`, `output/`, `waivers.yaml`, and `playbooks/`.
+- Ansible playbooks for each pipeline stage: `download.yml`, `transform.yml`, `waivers.yml`.
+- Automated scheduling via Ansible Tower (Mondays at 09:00 AM London time).
+
+### 🚀 New Features
+- **Scan Report Download**: Connects to AWS Inspector 2 and pulls CIS benchmark scan reports in Excel format.
+- **Data Transformation**: Cleans and converts Excel data to structured JSON.
+- **Waiver Application**: Applies waivers based on `waivers.yaml` to mark findings as waived by platform and ID.
+- **Splunk Integration**: Publishes the final JSON output to Splunk for compliance tracking.
+
+### ✏️ Notable Changes
+- Standardized JSON output format for interoperability with downstream tools.
+- Introduced logical separation between raw, transformed, and waived data.
+
+### ⚠️ Deprecation
+- None in this release.
+
+### ❌ Removals
+- None in this release.
+
+
+----
 # 📦 chf_data_ingestion
 
 `chf_data_ingestion` is an automated pipeline for retrieving, processing, and publishing AWS Inspector 2 scan reports. This system supports CIS compliance validation and integrates waiver handling based on a centrally maintained `waivers.yaml` file. The processed data is finally sent to Splunk for monitoring and reporting.
