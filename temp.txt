@@ -1,3 +1,38 @@
+Title:
+Release Feature Branch to Master in chf_data_ingestion Following Standard Process
+
+Description:
+As a platform engineer, I need to release the code currently in a feature branch of the chf_data_ingestion repository,
+so that the functionality can be made available in production as per our release workflow.
+
+The release process requires the following steps:
+
+Merge the feature branch into the develop branch.
+
+Promote changes from develop to the release branch.
+
+After approvals, merge the release branch into master.
+
+Update the relevant Confluence page with release details, including scope, date, and commit references.
+
+Acceptance Criteria:
+
+The feature branch is successfully merged into develop with no conflicts.
+
+Changes are promoted from develop to release and required approvals are obtained.
+
+Final merge from release to master is completed following internal approval and quality gates.
+
+Confluence release documentation is updated with:
+
+Release date
+
+Feature summary
+
+Relevant branch names and commit hashes
+
+All merges are traceable and follow the team's version control and tagging conventions.
+---
 Request GCS-Approved CIS Benchmark Data for Waivers Implementation
 
 Description:
