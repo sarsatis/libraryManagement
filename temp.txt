@@ -1,3 +1,38 @@
+Request GCS-Approved CIS Benchmark Data for Waivers Implementation
+
+Description:
+To implement waivers logic for Inspector 2 findings, we need an accurate and centralized list of GCS-approved CIS benchmark rules per platform. Current data in Confluence is inconsistent—CIS IDs do not match across sources, and multiple Excel files exist for the same platforms with no clear versioning or filtering criteria.
+
+This is blocking automation efforts to generate an accurate waivers.yaml file.
+
+Platforms:
+
+amazon_linux_2023
+
+amazon_linux_2
+
+microsoft_windows_server_2022
+
+microsoft_windows_server_2019
+
+rocky_rocky_linux_8
+
+redhat_redhat_enterprise_linux_8.10
+
+redhat_redhat_enterprise_linux_8.8
+
+Acceptance Criteria:
+
+A single, verified source of GCS-approved CIS IDs is provided per platform.
+
+The data includes CIS ID, rule description, approval status, and platform.
+
+The CIS IDs align with those used in Amazon Inspector 2 scan outputs.
+
+Format is Excel, CSV, or a centrally maintained reference document.
+
+
+---
 Subject: Request for Clear and Accurate GCS-Approved CIS Data for Waivers Implementation
 
 Hi Jack,
