@@ -1,3 +1,46 @@
+Subject: Request for Clear and Accurate GCS-Approved CIS Data for Waivers Implementation
+
+Hi Jack,
+
+I hope you're doing well.
+
+As part of the waivers functionality we're building, we are automating the process of validating Amazon Inspector 2 scan results against the GCS-approved CIS benchmark profiles. The goal is to mark any findings already approved by GCS as Skipped, regardless of their original status in Inspector 2, to reflect more accurate compliance reporting.
+
+The logic to implement this is already in place, but I’m currently facing challenges in sourcing reliable and consistent data on which CIS profiles have been approved by GCS for the supported platforms:
+
+amazon_linux_2023
+
+amazon_linux_2
+
+microsoft_windows_server_2022
+
+microsoft_windows_server_2019
+
+rocky_rocky_linux_8
+
+redhat_redhat_enterprise_linux_8.10
+
+redhat_redhat_enterprise_linux_8.8
+
+When I initially started the analysis with Amazon Linux 2023, you mentioned during our sync to filter the “Response for Amazon Linux 2023” column for “NA.” However, upon doing that and comparing the filtered entries to the actual CIS Benchmark v1.0.0 used by Inspector 2, I noticed several discrepancies.
+
+For instance, GCS marks CIS ID 1.1.10 as approved, but in the Amazon CIS profile, the corresponding rule with the same description is 1.1.3.1. This mismatch in IDs while having matching descriptions makes the automated matching process unreliable. I have documented these discrepancies in the Confluence page.
+
+Additionally, for the other platforms, there are multiple Excel files uploaded to Confluence for the same OS, with no clear indication of which one is the latest. Most of them also lack the "Response" columns used for filtering in the Amazon Linux case, making it difficult to extract a definitive list of GCS-approved CIS rules.
+
+Given this situation, I would like to check:
+
+Is there a single source of truth for the GCS-approved CIS IDs per platform?
+
+If yes, could you please help point me to it or share the latest and most accurate data files?
+
+Accurate data is critical for me to complete this task, which will output an updated waivers.yaml file listing all approved waiver IDs grouped by platform. This is essential to ensure downstream exemption processing is accurate.
+
+Thanks so much for your help on this.
+
+Best regards,
+[Your Name]
+----
 # 📄 CHANGELOG
 
 ## [1.0.0] - 2025-05-12
