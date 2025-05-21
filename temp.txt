@@ -1,3 +1,9 @@
+Just wanted to check—were you provided the option to Squash and Merge while merging that PR?
+
+Typically, using squash and merge helps keep the Git history clean. Ideally, after merging a PR, develop should reflect a single commit summarizing the feature work. However, I noticed that around 150 commits from the feature branch were merged in directly.
+
+It’s nothing critical and won’t cause any issues, but I wanted to understand if there's a specific process being followed here 
+---
 Title:
 Release Feature Branch to Master in chf_data_ingestion Following Standard Process
 
