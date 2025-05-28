@@ -1,3 +1,37 @@
+Hi Prabhu,
+
+Thank you for getting back to me and for pointing me to the Confluence page with the GCS-approved CIS benchmark responses.
+
+I had already reviewed this document as part of the analysis we’re doing for the waivers functionality. Specifically, we are automating the validation of Amazon Inspector 2 scan results against GCS-approved CIS benchmark profiles, with the goal of marking any already-approved findings as "Skipped"—regardless of their original status in Inspector 2—to reflect more accurate compliance reporting.
+
+While analyzing the data for Amazon Linux 2023, I followed the approach mentioned in the Confluence file—filtering the “Response for Amazon Linux 2023” column for “NA.” However, I encountered discrepancies between the CIS IDs listed in the GCS document and those in the CIS Benchmark v1.0.0 used by Inspector 2.
+
+For example:
+
+The GCS document marks CIS ID 1.1.10 as approved.
+
+However, in the actual Amazon Linux 2023 CIS profile used by Inspector 2, the rule with a matching description is CIS ID 1.1.3.1.
+
+These mismatches in rule IDs, despite similar descriptions, make automated matching unreliable. I’ve documented these discrepancies on the Confluence page and initially raised this concern with Jack. After reviewing it, Jack confirmed that this issue needs to be addressed by the GCS team.
+
+Additionally, for the other supported platforms (e.g., Amazon Linux 2, Windows Server 2019/2022, Rocky Linux 8, RHEL 8.8/8.10), the situation is more unclear:
+
+There are multiple Excel files uploaded to Confluence for the same OS.
+
+It's difficult to determine which file is the latest or most authoritative.
+
+Several of these files lack the “Response” columns altogether, which were crucial in the Amazon Linux case for filtering approved rules.
+
+Given these challenges, could you please help confirm:
+
+Is there a single, reliable source of truth that contains the GCS-approved CIS IDs for each supported platform?
+
+If so, could you share the latest and most accurate version of those datasets?
+
+Having consistent and reliable data is critical for generating an updated waivers.yaml file that lists all approved waiver IDs per platform. This file directly feeds into our exemption processing logic, so accuracy here is essential for downstream systems.
+
+I’d really appreciate your help in clarifying this.
+---
 Just wanted to check—were you provided the option to Squash and Merge while merging that PR?
 
 Typically, using squash and merge helps keep the Git history clean. Ideally, after merging a PR, develop should reflect a single commit summarizing the feature work. However, I noticed that around 150 commits from the feature branch were merged in directly.
