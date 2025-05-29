@@ -27,26 +27,36 @@ Add-Content -Path $csvfilepath -Value $content
 # Initialize result lines
 $allResultLines = @()
 
-# Loop through each subscription and run one batched query
+# Loop through each subscription
 foreach ($sub in $subscriptions) {
     Write-Host "`nQuerying subscription Name: $($sub.Name), ID: $($sub.Id)" -ForegroundColor Cyan
 
     $compliancequery = @"
 guestconfigurationresources
-| where type == "microsoft.guestconfiguration/guestconfigurationassignments"
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
 | where subscriptionId == '$($sub.Id)'
-| extend resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[[-1]],
-reportid = split(properties.latestReportId, '/')[[-1]], reporttime = properties.lastComplianceStatusChecked
+| extend vmid = split(properties.targetResourceId, '/')[[-1]],
+         reportid = split(properties.latestReportId, '/')[[-1]],
+         reporttime = properties.lastComplianceStatusChecked,
+         resources = properties.latestAssignmentReport.resources
 | mv-expand resources
-| extend reasons = iff(isnull(resources.reasons[0]), dynamic([]), resources.reasons)
-| project bunit="azure", subscription=subscriptionId, report_id=reportid, Date=format_datetime(todatetime(reporttime), "yyyy-MM-dd"),
-host_name=vmid, region=location,
-environment=case(tolower(substring(vmid,5,1))=="d", "dev", tolower(substring(vmid,5,1))=="q", "qa", tolower(substring(vmid,5,1))=="u", "uat",tolower(substring(vmid,5,1))=='p',"prod", 'UNKNOWN'),
-platform=split(name,"_")[2],
-status = iif(reasons.phrase contains "This control is in the waiver list", "skipped", iif(resources.complianceStatus=="true","passed","failed")),
-id=split(resources.resourceID,'_')[3],
-title = replace_string(tostring(resources.resourceId),"[WindowsControlTranslation]","")
+| extend reasons = iif(isnull(resources.reasons), dynamic([]), resources.reasons)
+| project bunit = 'azure',
+          subscription = subscriptionId,
+          report_id = reportid,
+          date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
+          host_name = vmid,
+          region = location,
+          environment = case(tolower(substring(vmid, 5, 1)) == 'd', 'dev',
+                             tolower(substring(vmid, 5, 1)) == 'q', 'qa',
+                             tolower(substring(vmid, 5, 1)) == 'u', 'uat',
+                             tolower(substring(vmid, 5, 1)) == 'p', 'prod', 'UNKNOWN'),
+          platform = split(name, '_')[2],
+          status = iif(array_length(reasons) > 0 and reasons[0].phrase contains 'This control is in the waiver list', 'skipped',
+                       iif(resources.complianceStatus == 'true', 'passed', 'failed')),
+          id = split(resources.resourceId, '_')[3],
+          title = replace_string(tostring(resources.resourceId), '[WindowsControlTranslation]', '')
 "@
 
     $batchsize = 1000
@@ -55,7 +65,7 @@ title = replace_string(tostring(resources.resourceId),"[WindowsControlTranslatio
     Write-Host "Total controls found: $($complianceresult.count)" -ForegroundColor Yellow
 
     foreach ($ctl in $complianceresult) {
-        $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
+        $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
         $allResultLines += $resultline
     }
 }
@@ -69,6 +79,7 @@ Write-Host "`nAll subscriptions processed. Report saved to $csvfilepath" -Foregr
 Write-Host "Converting CSV to JSON..." -ForegroundColor Cyan
 Import-Csv -Path "$csvfilepath" | ConvertTo-Json -Depth 10 | Set-Content -Path "$jsonfilepath" -Encoding utf8
 Write-Host "JSON report saved to $jsonfilepath" -ForegroundColor Green
+
 
 
 ----
