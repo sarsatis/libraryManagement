@@ -14,7 +14,7 @@ guestconfigurationresources
     bunit = 'azure',
     subscription = subscriptionId,
     report_id = reportid,
-    date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
+    report_date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
     host_name = vmid,
     region = location,
     environment = case(tolower(substring(vmid, 5, 1)) == 'd', 'dev',
