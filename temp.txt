@@ -1,85 +1,32 @@
-# Authenticate using Service Principal
-$SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
-$TenantId = "<NPE SP Tenant ID>"
-$ApplicationId = "<NPE SP App ID>"
-$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
-Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
-
-# Get all subscriptions
-$subscriptions = Get-AzSubscription
-Write-Host "Total subscriptions: $($subscriptions.count)" -ForegroundColor Cyan
-
-# Prepare output files
-$currentdate = Get-Date -Format "yyyy-MM-dd"
-$filename = "CIS_Benchmark_Windows2022_Baseline_1_0_$currentdate"
-$csvfilepath = ".\sourcefiles\$filename.csv"
-$jsonfilepath = ".\sourcefiles\$filename.json"
-
-if (Test-Path $csvfilepath) {
-    Remove-Item -Path $csvfilepath -Force
-    Remove-Item -Path $jsonfilepath -Force
-}
-
-# CSV Header
-$content = "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title"
-Add-Content -Path $csvfilepath -Value $content
-
-# Initialize result lines
-$allResultLines = @()
-
-# Loop through each subscription
-foreach ($sub in $subscriptions) {
-    Write-Host "`nQuerying subscription Name: $($sub.Name), ID: $($sub.Id)" -ForegroundColor Cyan
-
-    $compliancequery = @"
+$compliancequery = @"
 guestconfigurationresources
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
 | where subscriptionId == '$($sub.Id)'
-| extend vmid = split(properties.targetResourceId, '/')[[-1]],
-         reportid = split(properties.latestReportId, '/')[[-1]],
-         reporttime = properties.lastComplianceStatusChecked,
-         resources = properties.latestAssignmentReport.resources
+| extend
+    vmid = split(properties.targetResourceId, '/')[array_length(split(properties.targetResourceId, '/')) - 1],
+    reportid = split(properties.latestReportId, '/')[array_length(split(properties.latestReportId, '/')) - 1],
+    reporttime = properties.lastComplianceStatusChecked,
+    resources = properties.latestAssignmentReport.resources
 | mv-expand resources
 | extend reasons = iif(isnull(resources.reasons), dynamic([]), resources.reasons)
-| project bunit = 'azure',
-          subscription = subscriptionId,
-          report_id = reportid,
-          date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
-          host_name = vmid,
-          region = location,
-          environment = case(tolower(substring(vmid, 5, 1)) == 'd', 'dev',
-                             tolower(substring(vmid, 5, 1)) == 'q', 'qa',
-                             tolower(substring(vmid, 5, 1)) == 'u', 'uat',
-                             tolower(substring(vmid, 5, 1)) == 'p', 'prod', 'UNKNOWN'),
-          platform = split(name, '_')[2],
-          status = iif(array_length(reasons) > 0 and reasons[0].phrase contains 'This control is in the waiver list', 'skipped',
-                       iif(resources.complianceStatus == 'true', 'passed', 'failed')),
-          id = split(resources.resourceId, '_')[3],
-          title = replace_string(tostring(resources.resourceId), '[WindowsControlTranslation]', '')
+| project
+    bunit = 'azure',
+    subscription = subscriptionId,
+    report_id = reportid,
+    date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
+    host_name = vmid,
+    region = location,
+    environment = case(tolower(substring(vmid, 5, 1)) == 'd', 'dev',
+                       tolower(substring(vmid, 5, 1)) == 'q', 'qa',
+                       tolower(substring(vmid, 5, 1)) == 'u', 'uat',
+                       tolower(substring(vmid, 5, 1)) == 'p', 'prod', 'UNKNOWN'),
+    platform = split(name, '_')[2],
+    status = iif(array_length(reasons) > 0 and reasons[0].phrase contains 'This control is in the waiver list', 'skipped',
+                 iif(resources.complianceStatus == 'true', 'passed', 'failed')),
+    id = split(resources.resourceId, '_')[3],
+    title = replace_string(tostring(resources.resourceId), '[WindowsControlTranslation]', '')
 "@
-
-    $batchsize = 1000
-    $complianceresult = Search-AzGraph -Query $compliancequery -First $batchsize
-
-    Write-Host "Total controls found: $($complianceresult.count)" -ForegroundColor Yellow
-
-    foreach ($ctl in $complianceresult) {
-        $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
-        $allResultLines += $resultline
-    }
-}
-
-# Write all results to CSV at once
-$allResultLines | Add-Content -Path $csvfilepath
-
-Write-Host "`nAll subscriptions processed. Report saved to $csvfilepath" -ForegroundColor Green
-
-# Convert to JSON
-Write-Host "Converting CSV to JSON..." -ForegroundColor Cyan
-Import-Csv -Path "$csvfilepath" | ConvertTo-Json -Depth 10 | Set-Content -Path "$jsonfilepath" -Encoding utf8
-Write-Host "JSON report saved to $jsonfilepath" -ForegroundColor Green
-
 
 
 ----
