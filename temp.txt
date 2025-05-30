@@ -1,71 +1,129 @@
-# Login
+# Secure login setup
 $SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
 $TenantId = "<NPE SP Tenant ID>"
 $ApplicationId = "<NPE SP App ID>"
 $Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
+
 Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
 
 # Get subscriptions
 $subscriptions = Get-AzSubscription
-Write-Host "Total subscriptions: $($subscriptions.count)" -ForegroundColor Cyan
+Write-Host "Total subscriptions: $($subscriptions.Count)" -ForegroundColor Cyan
 
-# Prepare file paths
-$currentdate = Get-Date -Format "yyyy-MM-dd"
-$filename= "CIS_Benchmark_Windows2022_Baseline_1_0_$currentdate"
-$csvfilepath = ".\sourcefiles\$filename.csv"
-$jsonfilepath = ".\sourcefiles\$filename.json"
+# Output paths
+$currentDate = Get-Date -Format "yyyy-MM-dd"
+$filename = "CIS_Benchmark_Windows2022_Baseline_1_0_$currentDate"
+$csvFilePath = ".\sourcefiles\$filename.csv"
+$jsonFilePath = ".\sourcefiles\$filename.json"
 
-if (Test-Path $csvfilepath) { Remove-Item -Path $csvfilepath -Force }
-if (Test-Path $jsonfilepath) { Remove-Item -Path $jsonfilepath -Force }
+# Cleanup old files if they exist
+if (Test-Path $csvFilePath) {
+    Remove-Item -Path $csvFilePath -Force
+}
+if (Test-Path $jsonFilePath) {
+    Remove-Item -Path $jsonFilePath -Force
+}
 
-# Add CSV header
-Add-Content -Path $csvfilepath -Value "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title"
+# CSV Header
+$csvHeader = "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title"
+Add-Content -Path $csvFilePath -Value $csvHeader
 
-$allResults = @()
-
+# Query per subscription
 foreach ($sub in $subscriptions) {
-    Write-Host "Processing subscription: $($sub.Name) ($($sub.Id))" -ForegroundColor Cyan
+    $subId = $sub.Id
+    $subName = $sub.Name
 
-    # Optimized: One big query to get all compliance results directly
-    $query = @"
+    Write-Host "Processing subscription: $subName ($subId)" -ForegroundColor Cyan
+
+    # Query all relevant VM guest configuration resources for this subscription
+    $vmQuery = @"
 guestconfigurationresources
-| where subscriptionId == '$($sub.Id)'
+| where subscriptionId == '$subId'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| extend vmid = split(properties.targetResourceId, '/')[(-1)],
-         reportid = split(properties.latestReportId, '/')[(-1)],
-         reporttime = properties.lastComplianceStatusChecked,
-         resources = properties.latestAssignmentReport.resources
-| mv-expand resources
 | project 
-    bunit='azure',
-    subscription=subscriptionId,
-    report_id=reportid,
-    Date=format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
-    host_name=vmid,
-    region=location,
-    environment=case(tolower(substring(vmid,5,1))=='d','dev',tolower(substring(vmid,5,1))=='q','qa',tolower(substring(vmid,5,1))=='u','uat',tolower(substring(vmid,5,1))=='p','prod','UNKNOWN'),
-    platform=split(name,'_')[2],
-    status=iif(tostring(resources.complianceStatus) == 'true','passed','failed'),
-    id=split(tostring(resources.resourceId),'_')[2],
-    title=replace_string(tostring(resources.resourceId),'[WindowsControlTranslation]','')
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
 "@
 
-    $results = Search-AzGraph -Query $query -First 1000
-    Write-Host "Total compliance rows in subscription $($sub.Name): $($results.Count)" -ForegroundColor Cyan
+    $vmResults = Search-AzGraph -Query $vmQuery
 
-    foreach ($ctl in $results) {
-        $line = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
-        Add-Content -Path $csvfilepath -Value $line
-        $allResults += $ctl
+    if ($vmResults.Count -eq 0) {
+        continue
+    }
+
+    Write-Host "Found $($vmResults.Count) VMs in subscription $subName" -ForegroundColor Cyan
+
+    foreach ($vm in $vmResults) {
+        $vmId = $vm.vmid
+        Write-Host "Fetching compliance report for VM: $vmId" -ForegroundColor Cyan
+
+        # Query compliance details per VM
+        $complianceQuery = @"
+guestconfigurationresources
+| where id == '$($vm.id)'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project 
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{}]), reasons)
+| mv-expand reasons
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        reasons.phrase contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    id = split(resources.resourceID, "_")[3], 
+    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+"@
+
+        $complianceResults = Search-AzGraph -Query $complianceQuery -First 1000
+
+        foreach ($ctl in $complianceResults) {
+            $line = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
+            Add-Content -Path $csvFilePath -Value $line
+        }
     }
 }
 
-# Convert to JSON
-Write-Host "Converting CSV to JSON..." -ForegroundColor Cyan
-$allResults | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding utf8
+Write-Host "All subscriptions processed"
+Write-Host "Converting CSV to JSON..."
 
-Write-Host "✅ Finished processing all subscriptions." -ForegroundColor Green
+# Convert CSV to JSON
+Import-Csv -Path $csvFilePath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonFilePath -Encoding utf8
+
+Write-Host "Report generation completed"
 
 
 ---
