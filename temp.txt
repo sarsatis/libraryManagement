@@ -1,168 +1,115 @@
-import subprocess
-import json
+# -------------------- Secure Login --------------------
+$SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
+$TenantId = "<NPE SP Tenant ID>"
+$ApplicationId = "<NPE SP App ID>"
+$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
+Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
 
-vm_query = """
+# -------------------- Start Timer --------------------
+$startTime = Get-Date
+Write-Host "Start Time: $startTime" -ForegroundColor Yellow
+
+# -------------------- File Setup --------------------
+$subscriptions = Get-AzSubscription
+Write-Host "Total subscriptions: $($subscriptions.Count)" -ForegroundColor Cyan
+
+$currentDate = Get-Date -Format "yyyy-MM-dd"
+$filename = "CIS_Benchmark_Windows2022_Baseline_1_0_$currentDate"
+$csvFilePath = ".\sourcefiles\$filename.csv"
+$jsonFilePath = ".\sourcefiles\$filename.json"
+
+Remove-Item -Path $csvFilePath -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $jsonFilePath -Force -ErrorAction SilentlyContinue
+
+# Initialize array to accumulate all CSV lines in memory
+$allLines = @()
+$csvHeader = "bunit,subscription,report_id,Date,host_name,region,environment,platform,status,id,title"
+$allLines += $csvHeader
+
+# -------------------- Subscription Loop --------------------
+foreach ($sub in $subscriptions) {
+    $subId = $sub.Id
+    $subName = $sub.Name
+
+    $complianceQuery = @"
 guestconfigurationresources
+| where subscriptionId == '$subId'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location, vmid = split(properties.targetResourceId, '/')[array_length(split(properties.targetResourceId, '/')) - 1]
-| order by id
-"""
-
-result = subprocess.check_output([
-    "az.cmd", "graph", "query",
-    "--graph-query", vm_query,
-    "--first", "1000",
-    "--output", "json"
-], text=True)
-
-response = json.loads(result)
-vm_results = response.get("data", [])
-
-print("Total VMs fetched:", len(vm_results))
-print(json.dumps(vm_results, indent=2))  # pretty print to check vmid and other fields
-
-for vm in vm_results:
-    vmid = vm.get("vmid")
-    print(f" - VM: {vmid}")
----
-import subprocess
-import json
-import csv
-import os
-from datetime import datetime
-import time
-
-output_dir = "./sourcefiles"
-os.makedirs(output_dir, exist_ok=True)
-
-current_date = datetime.now().strftime("%Y-%m-%d")
-filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{current_date}"
-csv_path = os.path.join(output_dir, f"{filename}.csv")
-json_path = os.path.join(output_dir, f"{filename}.json")
-
-# Remove old files
-for path in [csv_path, json_path]:
-    if os.path.exists(path):
-        os.remove(path)
-
-csv_headers = [
-    "bunit", "subscription", "report_id", "date", "host_name", "region",
-    "environment", "platform", "status", "id", "title"
-]
-
-start_time = time.time()
-with open(csv_path, mode='w', newline='', encoding='utf-8') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(csv_headers)
-
-    # Get all subscriptions
-    sub_result = subprocess.check_output(["az.cmd", "account", "list", "--output", "json"], text=True)
-    subscriptions = json.loads(sub_result)
-    print(f"Total subscriptions: {len(subscriptions)}")
-
-    for sub in subscriptions:
-        sub_start_time = time.time()
-
-        sub_id = sub["id"]
-        sub_name = sub["name"]
-        subprocess.call(["az.cmd", "account", "set", "--subscription", sub_id])
-
-        print(f"\n-> Processing Subscription: {sub_name} ({sub_id})")
-
-        vm_query = f"""
-guestconfigurationresources
-| where subscriptionId == '{sub_id}'
-| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
-| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location, vmid = split(properties.targetResourceId, '/')[(-1)],
-  reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
-| order by id
-"""
-
-        try:
-            vm_output = subprocess.check_output([
-                "az.cmd", "graph", "query",
-                "--graph-query", vm_query,
-                "--first", "1000",
-                "--output", "json"
-            ], text=True)
-
-            vm_results = json.loads(vm_output).get("data", [])
-            if not vm_results:
-                print("No VMs found in this subscription.")
-                continue
-
-            print(f"VMs found: {len(vm_results)}")
-
-            for vm in vm_results:
-                vmid = vm.get("vmid")
-                print(f"  - VM: {vmid}")
-                vm_id = vm.get("id")
-
-                compliance_query = f"""
-guestconfigurationresources
-| where id == '{vm_id}'
-| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
-| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
-  reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
-| order by id
-| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| project 
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{}]), resources)
 | mv-expand resources limit 1000
 | extend reasons = resources.reasons
-| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| extend reasons = iff(isnull(reasons[0]), dynamic([{}]), reasons)
 | mv-expand reasons
-| project bunit='azure', subscription=subscriptionId, report_id=reportid, date=format_datetime(todatetime(reporttime), 'yyyy-MM-dd'), host_name=vmid,
-  region=location, environment=case(
-    tolower(substring(vmid,5,1))=='d','dev',
-    tolower(substring(vmid,5,1))=='q','qa',
-    tolower(substring(vmid,5,1))=='u','uat',
-    tolower(substring(vmid,5,1))=='p','prod',
-    'UNKNOWN'),
-  platform=split(name,'_')[2], 
-  status=iif(reasons.phrase contains 'This control is in the waiver list','skipped',
-             iif(resources.complianceStatus=='true','passed','failed')),
-  id=split(resources.resourceID,'_')[3], 
-  title=replace_string(tostring(resources.resourceId),'[WindowsControlTranslation]','')
-"""
+| order by id
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        reasons.phrase contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    id = split(resources.resourceID, "_")[3], 
+    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+"@
 
-                try:
-                    compliance_output = subprocess.check_output([
-                        "az.cmd", "graph", "query",
-                        "--graph-query", compliance_query,
-                        "--first", "1000",
-                        "--output", "json"
-                    ], text=True)
+    # Pagination setup
+    $batchSize = 1000
+    $skip = 0
+    $allResults = @()
 
-                    compliance_results = json.loads(compliance_output).get("data", [])
-                    for entry in compliance_results:
-                        row = [entry.get(h, "") for h in csv_headers]
-                        writer.writerow(row)
+    do {
+        $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize -Skip $skip
+        $allResults += $pagedResults
+        $skip += $batchSize
+    } while ($pagedResults.Count -eq $batchSize)
 
-                except subprocess.CalledProcessError as e:
-                    print(f"    -> Compliance query failed: {e}")
+    if ($allResults.Count -gt 0) {
+        Write-Host "Processing subscription: $subName ($subId)" -ForegroundColor Cyan
+        Write-Host "Total row count: $($allResults.Count)" -ForegroundColor Cyan
 
-        except subprocess.CalledProcessError as e:
-            print(f"Failed VM query in subscription {sub_name}: {e}")
+        foreach ($r in $allResults) {
+            $line = "$($r.bunit),$($r.subscription),$($r.report_id),$($r.Date),$($r.host_name),$($r.region),$($r.environment),$($r.platform),$($r.status),$($r.id),$($r.title)"
+            $allLines += $line
+        }
+    }
+}
 
-        sub_elapsed = time.time() - sub_start_time
-        print(f"-> Finished processing subscription '{sub_name}' in {sub_elapsed:.2f} seconds")
+# Write all CSV lines to the file at once (fast)
+$allLines | Set-Content -Path $csvFilePath -Encoding UTF8
 
+# -------------------- Export to JSON --------------------
+Write-Host "All subscriptions processed"
+Write-Host "Converting CSV to JSON..."
+Import-Csv -Path $csvFilePath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonFilePath -Encoding utf8
 
-print(f"CSV report saved to {csv_path}")
-print(f"JSON report saved to {json_path}")
-
-# Convert CSV to JSON
-with open(csv_path, newline='', encoding='utf-8') as csvfile:
-    reader = csv.DictReader(csvfile)
-    json_data = list(reader)
-    with open(json_path, 'w', encoding='utf-8') as jsonfile:
-        json.dump(json_data, jsonfile, indent=2)
-
-total_elapsed = time.time() - start_time
-print(f"\nAll subscriptions processed in {total_elapsed:.2f} seconds.")
-
+# -------------------- End Timer --------------------
+$endTime = Get-Date
+$duration = $endTime - $startTime
+Write-Host "End Time: $endTime" -ForegroundColor Yellow
+Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
 
 ***************************************************************************************************************************
 
