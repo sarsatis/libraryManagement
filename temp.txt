@@ -1,37 +1,3 @@
-def run_resource_graph_query(token, subscription_id):
-    url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-    query = QUERY_TEMPLATE.format(subscription_id=subscription_id)
-    all_results = []
-    skip_token = None
-
-    while True:
-        body = {
-            "subscriptions": [subscription_id],
-            "query": query,
-            "options": {
-                "resultFormat": "objectArray"
-            }
-        }
-        if skip_token:
-            body["options"]["skipToken"] = skip_token
-
-        response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
-        response.raise_for_status()
-        result_json = response.json()
-
-        data = result_json.get("data", [])
-        all_results.extend(data)
-
-        # Check if there is a skipToken for the next page
-        skip_token = result_json.get("skipToken", None)
-        if not skip_token:
-            break
-
-    return {"data": all_results}
-
----
 import requests
 import msal
 import json
@@ -40,7 +6,7 @@ import os
 from datetime import datetime
 import urllib3
 
-# Disable InsecureRequestWarning if SSL verification is off
+# --------- Disable SSL warnings if verification is disabled ---------
 VERIFY_SSL = False
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -48,14 +14,13 @@ if not VERIFY_SSL:
 # --------- Configurations ---------
 TENANT_ID = "<NPE SP Tenant ID>"
 CLIENT_ID = "<NPE SP App ID>"
-CLIENT_SECRET = "<NPE SP App Secret>"  # keep this secure!
+CLIENT_SECRET = "<NPE SP App Secret>"
 
 PROXIES = {
     # 'http': 'http://proxyaddress:port',
     # 'https': 'http://proxyaddress:port',
 }
 
-# Query template with subscription placeholder
 QUERY_TEMPLATE = """
 guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
@@ -100,11 +65,9 @@ guestconfigurationresources
     title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 """
 
-# --------- Auth & Token ---------
 def get_access_token(tenant_id, client_id, client_secret):
     authority = f"https://login.microsoftonline.com/{tenant_id}"
     scope = ["https://management.azure.com/.default"]
-
     app = msal.ConfidentialClientApplication(
         client_id,
         authority=authority,
@@ -116,7 +79,6 @@ def get_access_token(tenant_id, client_id, client_secret):
     else:
         raise Exception(f"Failed to get token: {result.get('error_description')}")
 
-# --------- Get Subscriptions ---------
 def get_subscriptions(token):
     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
     headers = {"Authorization": f"Bearer {token}"}
@@ -125,31 +87,51 @@ def get_subscriptions(token):
     subs = resp.json().get("value", [])
     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
 
-# --------- Run Query (No Pagination) ---------
+# ✅ Your exact `run_resource_graph_query` function
 def run_resource_graph_query(token, subscription_id):
-    url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
+    url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     query = QUERY_TEMPLATE.format(subscription_id=subscription_id)
-    body = {
-        "subscriptions": [subscription_id],
-        "query": query,
-        "options": {
-            "resultFormat": "objectArray"
-        }
-    }
-    response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
-    response.raise_for_status()
-    return response.json()
+    all_results = []
+    skip_token = None
+    page = 1
 
-# --------- Main Script ---------
+    while True:
+        body = {
+            "subscriptions": [subscription_id],
+            "query": query,
+            "options": {
+                "resultFormat": "objectArray"
+            }
+        }
+        if skip_token:
+            body["options"]["skipToken"] = skip_token
+
+        response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
+        response.raise_for_status()
+        result_json = response.json()
+
+        data = result_json.get("data", [])
+        all_results.extend(data)
+        print(f"Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})")
+
+        skip_token = result_json.get("skipToken", None)
+        if not skip_token:
+            break
+
+        page += 1
+
+    return {"data": all_results}
+
+# --------- Main Execution ---------
 def main():
-    print("Logging into Azure and acquiring token...")
+    print("Authenticating and acquiring token...")
     token = get_access_token(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
 
-    print("Fetching subscriptions...")
+    print("Retrieving Azure subscriptions...")
     subscriptions = get_subscriptions(token)
-    print(f"Total subscriptions: {len(subscriptions)}")
+    print(f"Found {len(subscriptions)} subscriptions")
 
     start_time = datetime.now()
     filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_PYTHON_{start_time.strftime('%Y-%m-%d')}"
@@ -163,21 +145,15 @@ def main():
     all_rows = []
 
     for sub_id, sub_name in subscriptions:
-        print(f"Processing subscription: {sub_name} ({sub_id})")
         result_json = run_resource_graph_query(token, sub_id)
         data = result_json.get("data", [])
-        count = len(data)
-        if count > 0:
-            print(f"Fetched {count} rows from subscription '{sub_name}'")
-            all_rows.extend(data)
-        else:
-            print(f"No data returned for subscription '{sub_name}', skipping...")
+        all_rows.extend(data)
 
-    if len(all_rows) == 0:
-        print("No data returned for any subscription. Exiting.")
+    if not all_rows:
+        print("No compliance data found across subscriptions.")
         return
 
-    print(f"Writing data to CSV file: {csv_filepath}")
+    print(f"Writing CSV: {csv_filepath}")
     with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
@@ -185,16 +161,16 @@ def main():
             filtered_row = {key: row.get(key, "") for key in headers}
             writer.writerow(filtered_row)
 
-    print(f"Writing data to JSON file: {json_filepath}")
+    print(f"Writing JSON: {json_filepath}")
     with open(json_filepath, mode="w", encoding="utf-8") as f:
         json.dump(all_rows, f, indent=2)
 
-    end_time = datetime.now()
-    duration = end_time - start_time
-    print(f"Finished. Total time: {duration}")
+    print(f"Done. Total records written: {len(all_rows)}")
+    print(f"Time taken: {datetime.now() - start_time}")
 
 if __name__ == "__main__":
     main()
+
 
 *************************************************************
 import requests
