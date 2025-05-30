@@ -1,3 +1,176 @@
+import requests
+import json
+import os
+from datetime import datetime
+import pandas as pd
+
+# ----------------- Configuration -----------------
+TENANT_ID = "<NPE SP Tenant ID>"
+CLIENT_ID = "<NPE SP App ID>"
+CLIENT_SECRET = "<NPE SP Client Secret>"
+
+PROXIES = {
+    "http": "http://your-proxy-url:port",
+    "https": "http://your-proxy-url:port"
+}
+
+VERIFY_SSL = False  # Disable SSL verification (NOT recommended for production)
+
+QUERY_TEMPLATE = """
+guestconfigurationresources
+| where subscriptionId == '{}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project 
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| mv-expand reasons
+| order by id
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        reasons.phrase contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    id = split(resources.resourceID, "_")[3], 
+    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+"""
+
+RESOURCE_GRAPH_API = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01"
+SUBS_API = f"https://management.azure.com/subscriptions?api-version=2020-01-01"
+
+# ----------------- Authenticate -----------------
+def get_access_token():
+    url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "scope": "https://management.azure.com/.default"
+    }
+    resp = requests.post(url, data=data, proxies=PROXIES, verify=VERIFY_SSL)
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    print("Authenticated successfully.")
+    return token
+
+# ----------------- Get Subscriptions -----------------
+def get_subscriptions(token):
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(SUBS_API, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
+    resp.raise_for_status()
+    subs = resp.json().get("value", [])
+    print(f"Fetched {len(subs)} subscriptions.")
+    return subs
+
+# ----------------- Run Resource Graph Query -----------------
+def run_query(token, subscription_id, skip_token=None):
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    query = QUERY_TEMPLATE.format(subscription_id)
+    payload = {
+        "query": query,
+        "subscriptions": [subscription_id],
+        "options": {
+            "resultFormat": "objectArray"
+        }
+    }
+    if skip_token:
+        payload["skipToken"] = skip_token
+
+    resp = requests.post(RESOURCE_GRAPH_API, headers=headers, json=payload, proxies=PROXIES, verify=VERIFY_SSL)
+    resp.raise_for_status()
+    return resp.json()
+
+# ----------------- Main Script -----------------
+def main():
+    start_time = datetime.now()
+    print(f"Start Time: {start_time}")
+
+    filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_PYTHON_{start_time.strftime('%Y-%m-%d')}"
+    os.makedirs("sourcefiles", exist_ok=True)
+    csv_filepath = f"./sourcefiles/{filename}.csv"
+    json_filepath = f"./sourcefiles/{filename}.json"
+
+    for f in [csv_filepath, json_filepath]:
+        if os.path.exists(f):
+            os.remove(f)
+
+    token = get_access_token()
+    subscriptions = get_subscriptions(token)
+
+    all_rows = []
+    for sub in subscriptions:
+        sub_id = sub["subscriptionId"] if "subscriptionId" in sub else sub["id"]
+        print(f"Querying subscription: {sub_id}")
+
+        skip_token = None
+        total_rows_sub = 0
+
+        while True:
+            result = run_query(token, sub_id, skip_token)
+            data = result.get("data", [])
+            total_rows_sub += len(data)
+            print(f"Fetched {len(data)} rows from subscription {sub_id} (skipToken={skip_token})")
+
+            all_rows.extend(data)
+
+            skip_token = result.get("skipToken")
+            if not skip_token:
+                break
+
+        print(f"Total rows fetched for subscription {sub_id}: {total_rows_sub}")
+
+    if not all_rows:
+        print("No data fetched.")
+        return
+
+    # Save CSV
+    df = pd.DataFrame(all_rows)
+    df.to_csv(csv_filepath, index=False)
+    print(f"Saved CSV to {csv_filepath}")
+
+    # Save JSON
+    with open(json_filepath, "w", encoding="utf-8") as f:
+        json.dump(all_rows, f, indent=2)
+    print(f"Saved JSON to {json_filepath}")
+
+    end_time = datetime.now()
+    duration = end_time - start_time
+    print(f"End Time: {end_time}")
+    print(f"Total Duration: {duration}")
+
+if __name__ == "__main__":
+    main()
+
+
+----
 import subprocess
 import json
 import os
