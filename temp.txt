@@ -2,13 +2,12 @@ import subprocess
 import json
 import csv
 import os
-import time
 from datetime import datetime
 
 # -------------------- Configuration --------------------
 TENANT_ID = "<NPE SP Tenant ID>"
 APP_ID = "<NPE SP App ID>"
-PASSWORD = ""  # Your SP password securely retrieved or stored
+PASSWORD = ""  # Securely retrieved/stored SP password
 
 # -------------------- Login --------------------
 print("Logging into Azure...")
@@ -24,17 +23,20 @@ subprocess.run([
 start_time = datetime.now()
 print(f"Start Time: {start_time}")
 
-filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{start_time.strftime('%Y-%m-%d')}"
+filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_PYTHON_{start_time.strftime('%Y-%m-%d')}"
 csv_filepath = f"./sourcefiles/{filename}.csv"
 json_filepath = f"./sourcefiles/{filename}.json"
 os.makedirs("sourcefiles", exist_ok=True)
 
-# Remove old files if exist
+# Clean up old files
 for path in [csv_filepath, json_filepath]:
     if os.path.exists(path):
         os.remove(path)
 
-header = ["bunit", "subscription", "report_id", "Date", "host_name", "region", "environment", "platform", "status", "id", "title"]
+header = [
+    "bunit", "subscription", "report_id", "Date", "host_name", "region",
+    "environment", "platform", "status", "id", "title"
+]
 all_data = []
 
 # -------------------- Get Subscriptions --------------------
@@ -42,12 +44,9 @@ subs_raw = subprocess.check_output(["az.cmd", "account", "list", "--query", "[].
 subscriptions = json.loads(subs_raw)
 print(f"Total subscriptions: {len(subscriptions)}")
 
-# -------------------- Main Loop --------------------
-for sub in subscriptions:
-    sub_id = sub["id"]
-    sub_name = sub["name"]
-
-    query = f"""
+# -------------------- KQL Template --------------------
+def build_query(sub_id):
+    return f"""
 guestconfigurationresources
 | where subscriptionId == '{sub_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
@@ -85,39 +84,29 @@ guestconfigurationresources
     title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 """.strip()
 
-    # Pagination using skipToken
-    batch_size = 1000
-    results = []
-    skip_token = None
+# -------------------- Main Loop --------------------
+for sub in subscriptions:
+    sub_id = sub["id"]
+    sub_name = sub["name"]
+    print(f"Fetching data from subscription: {sub_name} ({sub_id})")
 
-    while True:
-        query_cmd = [
-            "az.cmd", "graph", "query",
-            "--first", str(batch_size),
-            "--graph-query", query
-        ]
+    query = build_query(sub_id)
 
-        if skip_token:
-            query_cmd += ["--skip-token", skip_token]
+    query_cmd = [
+        "az.cmd", "graph", "query",
+        "--graph-query", query,
+        "--query", "data"
+    ]
 
-        try:
-            result_raw = subprocess.check_output(query_cmd)
-            page = json.loads(result_raw)
-            data = page.get("data", [])
-            results.extend(data)
-            print(f"Fetched {len(data)} rows from {sub_name}")
-
-            skip_token = page.get("skipToken")
-            if not skip_token:
-                break
-        except subprocess.CalledProcessError as e:
-            print(f"Query failed for subscription {sub_name} ({sub_id}): {e}")
-            break
-
-        time.sleep(0.2)  # Optional throttle
+    try:
+        result_raw = subprocess.check_output(query_cmd, stderr=subprocess.DEVNULL)
+        results = json.loads(result_raw)
+    except subprocess.CalledProcessError:
+        print(f"Failed to fetch data from subscription {sub_id}")
+        continue
 
     if results:
-        print(f"Processing subscription: {sub_name} ({sub_id}) - Rows: {len(results)}")
+        print(f"Fetched {len(results)} rows from subscription {sub_name}")
         for row in results:
             line = [
                 row.get("bunit", ""),
@@ -135,14 +124,14 @@ guestconfigurationresources
             all_data.append(line)
 
 # -------------------- Write to CSV --------------------
-print("Writing CSV...")
+print("Writing to CSV...")
 with open(csv_filepath, "w", newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(header)
     writer.writerows(all_data)
 
 # -------------------- Convert to JSON --------------------
-print("Converting CSV to JSON...")
+print("Generating JSON file...")
 with open(csv_filepath, encoding='utf-8') as f:
     reader = csv.DictReader(f)
     json_data = list(reader)
@@ -154,6 +143,7 @@ with open(json_filepath, "w", encoding='utf-8') as jf:
 end_time = datetime.now()
 print(f"End Time: {end_time}")
 print(f"Total Execution Time: {str(end_time - start_time)}")
+
 
 
 
