@@ -1,3 +1,37 @@
+def run_resource_graph_query(token, subscription_id):
+    url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    query = QUERY_TEMPLATE.format(subscription_id=subscription_id)
+    all_results = []
+    skip_token = None
+
+    while True:
+        body = {
+            "subscriptions": [subscription_id],
+            "query": query,
+            "options": {
+                "resultFormat": "objectArray"
+            }
+        }
+        if skip_token:
+            body["options"]["skipToken"] = skip_token
+
+        response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
+        response.raise_for_status()
+        result_json = response.json()
+
+        data = result_json.get("data", [])
+        all_results.extend(data)
+
+        # Check if there is a skipToken for the next page
+        skip_token = result_json.get("skipToken", None)
+        if not skip_token:
+            break
+
+    return {"data": all_results}
+
+---
 import requests
 import msal
 import json
