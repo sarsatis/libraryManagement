@@ -1,3 +1,189 @@
+import subprocess
+import json
+import os
+import requests
+from datetime import datetime
+import pandas as pd
+
+# -------------------- Configuration --------------------
+TENANT_ID = "<NPE SP Tenant ID>"
+APP_ID = "<NPE SP App ID>"
+PASSWORD = ""  # Securely store and retrieve the SP password
+
+# Disable SSL warnings and proxies for requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+session = requests.Session()
+session.verify = False  # Disable SSL verification
+session.trust_env = False  # Ignore system proxy settings
+
+# -------------------- Functions --------------------
+
+def az_login():
+    print("Logging into Azure via az CLI...")
+    subprocess.run([
+        "az.cmd", "login",
+        "--service-principal",
+        "--username", APP_ID,
+        "--password", PASSWORD,
+        "--tenant", TENANT_ID
+    ], check=True)
+    print("Login successful.\n")
+
+def get_access_token():
+    # Get access token for ARM
+    result = subprocess.run(
+        ["az.cmd", "account", "get-access-token", "--resource", "https://management.azure.com/"],
+        capture_output=True, text=True, check=True)
+    token_data = json.loads(result.stdout)
+    return token_data["accessToken"]
+
+def get_subscriptions(token):
+    # Query subscriptions accessible to the service principal
+    url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = session.get(url, headers=headers)
+    resp.raise_for_status()
+    subs_json = resp.json()
+    subscriptions = subs_json.get("value", [])
+    return subscriptions
+
+def run_query(token, subscription_id, skip_token=None):
+    url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    query = f"""
+    guestconfigurationresources
+    | where subscriptionId == '{subscription_id}'
+    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+    | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+    | project 
+        subscriptionId, 
+        id, 
+        name, 
+        location, 
+        resources = properties.latestAssignmentReport.resources, 
+        vmid = split(properties.targetResourceId, '/')[(-1)],
+        reportid = split(properties.latestReportId, '/')[(-1)], 
+        reporttime = properties.lastComplianceStatusChecked
+    | extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+    | mv-expand resources limit 1000
+    | extend reasons = resources.reasons
+    | extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+    | mv-expand reasons
+    | order by id
+    | project 
+        bunit = "azure", 
+        subscription = subscriptionId, 
+        report_id = reportid, 
+        Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+        host_name = vmid,
+        region = location, 
+        environment = case(
+            tolower(substring(vmid, 5, 1)) == "d", "dev",
+            tolower(substring(vmid, 5, 1)) == "q", "qa",
+            tolower(substring(vmid, 5, 1)) == "u", "uat",
+            tolower(substring(vmid, 5, 1)) == "p", "prod",
+            "UNKNOWN"
+        ),
+        platform = split(name, "_")[2], 
+        status = iif(
+            reasons.phrase contains "This control is in the waiver list", 
+            "skipped", 
+            iif(resources.complianceStatus == "true", "passed", "failed")
+        ),
+        id = split(resources.resourceID, "_")[3], 
+        title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+    """
+
+    body = {
+        "subscriptions": [subscription_id],
+        "query": query,
+        "options": {
+            "resultFormat": "objectArray"
+        }
+    }
+
+    if skip_token:
+        body["options"]["skipToken"] = skip_token
+
+    resp = session.post(url, headers=headers, json=body)
+    resp.raise_for_status()
+    return resp.json()
+
+# -------------------- Main --------------------
+
+def main():
+    start_time = datetime.now()
+    print(f"Start Time: {start_time}\n")
+
+    filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_PYTHON_{start_time.strftime('%Y-%m-%d')}"
+    os.makedirs("sourcefiles", exist_ok=True)
+    csv_filepath = f"./sourcefiles/{filename}.csv"
+    json_filepath = f"./sourcefiles/{filename}.json"
+
+    for f in [csv_filepath, json_filepath]:
+        if os.path.exists(f):
+            os.remove(f)
+
+    az_login()
+    token = get_access_token()
+    subscriptions = get_subscriptions(token)
+    print(f"Total subscriptions found: {len(subscriptions)}\n")
+
+    all_rows = []
+    for sub in subscriptions:
+        sub_id = sub.get("subscriptionId", sub.get("subscriptionId", sub.get("id")))
+        print(f"Querying subscription: {sub_id}")
+
+        skip_token = None
+        total_rows_sub = 0
+
+        while True:
+            result = run_query(token, sub_id, skip_token)
+            data = result.get("data", [])
+            rows_count = len(data)
+            total_rows_sub += rows_count
+
+            if rows_count > 0:
+                print(f"Fetched {rows_count} rows from subscription {sub_id} (skipToken={skip_token})")
+
+            all_rows.extend(data)
+
+            skip_token = result.get("skipToken")
+            if not skip_token:
+                break
+
+        if total_rows_sub > 0:
+            print(f"Total rows fetched for subscription {sub_id}: {total_rows_sub}\n")
+
+    if not all_rows:
+        print("No data fetched. Exiting.")
+        return
+
+    # Save CSV
+    df = pd.DataFrame(all_rows)
+    df.to_csv(csv_filepath, index=False)
+    print(f"Saved CSV to {csv_filepath}")
+
+    # Save JSON
+    with open(json_filepath, "w", encoding="utf-8") as f:
+        json.dump(all_rows, f, indent=2)
+    print(f"Saved JSON to {json_filepath}")
+
+    end_time = datetime.now()
+    duration = end_time - start_time
+    print(f"\nEnd Time: {end_time}")
+    print(f"Total Duration: {duration}")
+
+if __name__ == "__main__":
+    main()
+
+---
 import requests
 import json
 import os
