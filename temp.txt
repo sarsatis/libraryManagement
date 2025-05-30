@@ -1,3 +1,133 @@
+import subprocess
+import json
+import csv
+import os
+from datetime import datetime
+
+# -------------------- Config --------------------
+TENANT_ID = "<NPE SP Tenant ID>"
+APP_ID = "<NPE SP App ID>"
+PASSWORD = ""  # Use a secret manager or env var in real-world usage
+
+BATCH_SIZE = 1000
+DATE_STR = datetime.now().strftime("%Y-%m-%d")
+FILENAME = f"CIS_Benchmark_Windows2022_Baseline_1_0_{DATE_STR}"
+CSV_PATH = f"./sourcefiles/{FILENAME}.csv"
+JSON_PATH = f"./sourcefiles/{FILENAME}.json"
+
+os.makedirs("sourcefiles", exist_ok=True)
+
+# -------------------- Auth --------------------
+print("Logging in with service principal...")
+subprocess.run([
+    "az", "login",
+    "--service-principal",
+    "-u", APP_ID,
+    "-p", PASSWORD,
+    "--tenant", TENANT_ID
+], check=True)
+
+# -------------------- Fetch Subscriptions --------------------
+print("Fetching subscriptions...")
+subs_output = subprocess.check_output(["az", "account", "list", "--query", "[].{id:id, name:name}", "-o", "json"])
+subscriptions = json.loads(subs_output)
+print(f"Total subscriptions: {len(subscriptions)}")
+
+# -------------------- CSV Init --------------------
+with open(CSV_PATH, "w", newline='', encoding="utf-8") as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["bunit", "subscription", "report_id", "Date", "host_name", "region",
+                     "environment", "platform", "status", "id", "title"])
+
+# -------------------- Timing --------------------
+start_time = datetime.now()
+print(f"\n=== Start Time: {start_time} ===\n")
+
+# -------------------- Loop Subs & Query --------------------
+for sub in subscriptions:
+    sub_id = sub['id']
+    sub_name = sub['name']
+    skip = 0
+    all_rows = []
+
+    while True:
+        query = f"""
+        guestconfigurationresources
+        | where subscriptionId == '{sub_id}'
+        | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+        | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+        | project subscriptionId, id, name, location,
+          resources = properties.latestAssignmentReport.resources,
+          vmid = split(properties.targetResourceId, '/')[(-1)],
+          reportid = split(properties.latestReportId, '/')[(-1)],
+          reporttime = properties.lastComplianceStatusChecked
+        | extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+        | mv-expand resources limit 1000
+        | extend reasons = resources.reasons
+        | extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+        | mv-expand reasons
+        | order by id
+        | project bunit = 'azure',
+                  subscription = subscriptionId,
+                  report_id = reportid,
+                  Date = format_datetime(todatetime(reporttime), 'yyyy-MM-dd'),
+                  host_name = vmid,
+                  region = location,
+                  environment = case(
+                    tolower(substring(vmid, 5, 1)) == 'd', 'dev',
+                    tolower(substring(vmid, 5, 1)) == 'q', 'qa',
+                    tolower(substring(vmid, 5, 1)) == 'u', 'uat',
+                    tolower(substring(vmid, 5, 1)) == 'p', 'prod',
+                    'UNKNOWN'),
+                  platform = split(name, '_')[2],
+                  status = iif(reasons.phrase contains 'This control is in the waiver list', 'skipped', iif(resources.complianceStatus == 'true', 'passed', 'failed')),
+                  id = split(resources.resourceID, '_')[3],
+                  title = replace_string(tostring(resources.resourceId), '[WindowsControlTranslation]', '')
+        """
+
+        cmd = ["az", "graph", "query", "-q", query.strip(), "--first", str(BATCH_SIZE)]
+        if skip > 0:
+            cmd += ["--skip", str(skip)]
+
+        output = subprocess.check_output(cmd)
+        result = json.loads(output)
+        data = result.get('data', [])
+
+        if not data:
+            break
+
+        all_rows.extend(data)
+        if len(data) < BATCH_SIZE:
+            break
+        skip += BATCH_SIZE
+
+    if all_rows:
+        print(f"Subscription: {sub_name}, Rows: {len(all_rows)}")
+        with open(CSV_PATH, "a", newline='', encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            for row in all_rows:
+                writer.writerow([
+                    row["bunit"], row["subscription"], row["report_id"], row["Date"],
+                    row["host_name"], row["region"], row["environment"], row["platform"],
+                    row["status"], row["id"], row["title"]
+                ])
+
+# -------------------- Convert to JSON --------------------
+with open(CSV_PATH, "r", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    json_data = list(reader)
+
+with open(JSON_PATH, "w", encoding="utf-8") as f:
+    json.dump(json_data, f, indent=2)
+
+# -------------------- Timing End --------------------
+end_time = datetime.now()
+duration = end_time - start_time
+
+print(f"\n=== End Time: {end_time} ===")
+print(f"=== Total Execution Time: {duration} ===")
+
+---
 # Pagination setup
 $batchSize = 1000
 $skip = 0
