@@ -83,13 +83,15 @@ guestconfigurationresources
     $allResults = @()
 
     do {
-        # Enforce minimum batch size of 1 to avoid error
-        $currentBatchSize = if ($batchSize -lt 1) { 1 } else { $batchSize }
+        if ($skip -eq 0) {
+            $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize
+        } else {
+            $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize -Skip $skip
+        }
 
-        $pagedResults = Search-AzGraph -Query $complianceQuery -First $currentBatchSize -Skip $skip
         $allResults += $pagedResults
-        $skip += $currentBatchSize
-    } while ($pagedResults.Count -eq $currentBatchSize)
+        $skip += $batchSize
+    } while ($pagedResults.Count -eq $batchSize)
 
     if ($allResults.Count -gt 0) {
         Write-Host "Processing subscription: $subName ($subId)" -ForegroundColor Cyan
@@ -115,6 +117,7 @@ $endTime = Get-Date
 $duration = $endTime - $startTime
 Write-Host "End Time: $endTime" -ForegroundColor Yellow
 Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
+
 
 
 
