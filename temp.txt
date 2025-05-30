@@ -1,13 +1,7 @@
-
-# Print fetched results JSON to terminal
-        Write-Host "=== Fetched $($pagedResults.Count) rows from subscription '$subName' (skip=$skip) ===" -ForegroundColor Magenta
-        $pagedResults | ConvertTo-Json -Depth 5 | Write-Host
----
-
 import subprocess
 import json
-import csv
 import os
+import csv
 from datetime import datetime
 
 # -------------------- Configuration --------------------
@@ -50,105 +44,103 @@ subs_raw = subprocess.check_output(["az.cmd", "account", "list", "--query", "[].
 subscriptions = json.loads(subs_raw)
 print(f"Total subscriptions: {len(subscriptions)}")
 
-# -------------------- KQL Template --------------------
-def build_query(sub_id):
-    return f"""
-guestconfigurationresources
-| where subscriptionId == '{sub_id}'
-| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
-| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources,
-    vmid = split(properties.targetResourceId, '/')[(-1)],
-    reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
-| order by id
-| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
-| mv-expand resources limit 1000
-| extend reasons = resources.reasons
-| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
-| mv-expand reasons
-| project 
-    bunit = "azure", 
-    subscription = subscriptionId, 
-    report_id = reportid, 
-    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
-    host_name = vmid,
-    region = location, 
-    environment = case(
-        tolower(substring(vmid, 5, 1)) == "d", "dev",
-        tolower(substring(vmid, 5, 1)) == "q", "qa",
-        tolower(substring(vmid, 5, 1)) == "u", "uat",
-        tolower(substring(vmid, 5, 1)) == "p", "prod",
-        "UNKNOWN"
-    ),
-    platform = split(name, "_")[2], 
-    status = iif(
-        reasons.phrase contains "This control is in the waiver list", 
-        "skipped", 
-        iif(resources.complianceStatus == "true", "passed", "failed")
-    ),
-    id = split(resources.resourceID, "_")[3], 
-    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
-""".strip()
+# -------------------- Query per Subscription --------------------
+def run_az_graph_query(subscription_id, first=1000, skip=0):
+    query = f"""
+    guestconfigurationresources
+    | where subscriptionId == '{subscription_id}'
+    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+    | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+    | project 
+        bunit = "azure", 
+        subscription = subscriptionId, 
+        report_id = split(properties.latestReportId, '/')[(-1)], 
+        Date = format_datetime(todatetime(properties.lastComplianceStatusChecked), "yyyy-MM-dd"), 
+        host_name = split(properties.targetResourceId, '/')[(-1)],
+        region = location, 
+        environment = case(
+            tolower(substring(host_name, 5, 1)) == "d", "dev",
+            tolower(substring(host_name, 5, 1)) == "q", "qa",
+            tolower(substring(host_name, 5, 1)) == "u", "uat",
+            tolower(substring(host_name, 5, 1)) == "p", "prod",
+            "UNKNOWN"
+        ),
+        platform = split(name, "_")[2], 
+        status = iif(
+            array_length(properties.latestAssignmentReport.resources) == 0, "skipped",
+            iif(properties.latestAssignmentReport.resources[0].complianceStatus == "true", "passed", "failed")
+        ),
+        id = split(properties.latestAssignmentReport.resources[0].resourceID, "_")[3], 
+        title = replace_string(tostring(properties.latestAssignmentReport.resources[0].resourceId), "[WindowsControlTranslation]", "")
+    """
 
-# -------------------- Main Loop --------------------
-for sub in subscriptions:
-    sub_id = sub["id"]
-    sub_name = sub["name"]
-    print(f"Fetching data from subscription: {sub_name} ({sub_id})")
-
-    query = build_query(sub_id)
-
-    query_cmd = [
+    cmd = [
         "az.cmd", "graph", "query",
-        "--graph-query", query,
-        "--query", "data"
+        "--query", query,
+        "--first", str(first),
+        "--skip", str(skip),
+        "--output", "json"
     ]
 
-    try:
-        result_raw = subprocess.check_output(query_cmd, stderr=subprocess.DEVNULL)
-        results = json.loads(result_raw)
-    except subprocess.CalledProcessError:
-        print(f"Failed to fetch data from subscription {sub_id}")
-        continue
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"Error querying subscription {subscription_id}:", proc.stderr)
+        return None
 
-    if results:
-        print(f"Fetched {len(results)} rows from subscription {sub_name}")
-        for row in results:
-            line = [
-                row.get("bunit", ""),
-                row.get("subscription", ""),
-                row.get("report_id", ""),
-                row.get("Date", ""),
-                row.get("host_name", ""),
-                row.get("region", ""),
-                row.get("environment", ""),
-                row.get("platform", ""),
-                row.get("status", ""),
-                row.get("id", ""),
-                row.get("title", "").replace(",", " ")
-            ]
-            all_data.append(line)
+    return json.loads(proc.stdout)
 
-# -------------------- Write to CSV --------------------
-print("Writing to CSV...")
-with open(csv_filepath, "w", newline='', encoding='utf-8') as f:
-    writer = csv.writer(f)
-    writer.writerow(header)
-    writer.writerows(all_data)
+for sub in subscriptions:
+    sub_id = sub['id']
+    sub_name = sub['name']
+    print(f"\nProcessing subscription: {sub_name} ({sub_id})")
 
-# -------------------- Convert to JSON --------------------
-print("Generating JSON file...")
-with open(csv_filepath, encoding='utf-8') as f:
-    reader = csv.DictReader(f)
-    json_data = list(reader)
+    skip = 0
+    batch_size = 1000
 
-with open(json_filepath, "w", encoding='utf-8') as jf:
-    json.dump(json_data, jf, indent=2)
+    while True:
+        print(f"Fetching rows, skip={skip}")
+        result = run_az_graph_query(sub_id, first=batch_size, skip=skip)
+        if not result or 'data' not in result or not result['data']['rows']:
+            print("No more data or error.")
+            break
 
-# -------------------- Done --------------------
+        columns = [col['name'] for col in result['data']['columns']]
+        rows = result['data']['rows']
+
+        # Convert rows to dicts and append
+        batch_data = [dict(zip(columns, row)) for row in rows]
+        all_data.extend(batch_data)
+
+        print(f"Fetched {len(rows)} rows from subscription {sub_name}")
+
+        if len(rows) < batch_size:
+            # Last batch for this subscription
+            break
+
+        skip += batch_size
+
+print(f"\nTotal records fetched: {len(all_data)}")
+
+# -------------------- Write CSV --------------------
+with open(csv_filepath, mode='w', newline='', encoding='utf-8') as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=header)
+    writer.writeheader()
+    for row in all_data:
+        writer.writerow(row)
+
+print(f"CSV data saved to {csv_filepath}")
+
+# -------------------- Write JSON --------------------
+with open(json_filepath, mode='w', encoding='utf-8') as jsonfile:
+    json.dump(all_data, jsonfile, indent=2)
+
+print(f"JSON data saved to {json_filepath}")
+
+# -------------------- End Time --------------------
 end_time = datetime.now()
-print(f"End Time: {end_time}")
-print(f"Total Execution Time: {str(end_time - start_time)}")
+duration = end_time - start_time
+print(f"\nEnd Time: {end_time}")
+print(f"Total Execution Time: {duration}")
 
 
 
