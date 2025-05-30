@@ -5,57 +5,37 @@ $ApplicationId = "<NPE SP App ID>"
 $Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
 Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
 
-# Get all subscriptions
+# Get subscriptions
 $subscriptions = Get-AzSubscription
 Write-Host "Total subscriptions: $($subscriptions.count)" -ForegroundColor Cyan
 
-# Prepare output file paths
+# Prepare file paths
 $currentdate = Get-Date -Format "yyyy-MM-dd"
 $filename= "CIS_Benchmark_Windows2022_Baseline_1_0_$currentdate"
 $csvfilepath = ".\sourcefiles\$filename.csv"
 $jsonfilepath = ".\sourcefiles\$filename.json"
 
-# Cleanup old files
 if (Test-Path $csvfilepath) { Remove-Item -Path $csvfilepath -Force }
 if (Test-Path $jsonfilepath) { Remove-Item -Path $jsonfilepath -Force }
 
-# CSV header
-$content = "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title"
-Add-Content -Path $csvfilepath -Value $content
+# Add CSV header
+Add-Content -Path $csvfilepath -Value "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title"
 
-# Collect results
 $allResults = @()
 
-# Loop over subscriptions
 foreach ($sub in $subscriptions) {
     Write-Host "Processing subscription: $($sub.Name) ($($sub.Id))" -ForegroundColor Cyan
 
-    $VMquery = @"
+    # Optimized: One big query to get all compliance results directly
+    $query = @"
 guestconfigurationresources
 | where subscriptionId == '$($sub.Id)'
-| where type =~ "microsoft.guestconfiguration/guestconfigurationassignments"
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location,
-          vmid = split(properties.targetResourceId, '/')[(-1)],
-          reportid = split(properties.latestReportId, '/')[(-1)],
-          reporttime = properties.lastComplianceStatusChecked
-"@
-
-    $VMresults = Search-AzGraph -Query $VMquery -First 1000
-    Write-Host "Total VMs in subscription $($sub.Name): $($VMresults.Count)" -ForegroundColor Cyan
-
-    foreach ($vm in $VMresults) {
-        Write-Host "Querying VM: $($vm.vmid)" -ForegroundColor Cyan
-
-        $compliancequery = @"
-guestconfigurationresources
-| where id == '$($vm.id)'
-| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location,
-          vmid = split(properties.targetResourceId, '/')[(-1)],
-          reportid = split(properties.latestReportId, '/')[(-1)],
-          reporttime = properties.lastComplianceStatusChecked,
-          resources = properties.latestAssignmentReport.resources
+| extend vmid = split(properties.targetResourceId, '/')[(-1)],
+         reportid = split(properties.latestReportId, '/')[(-1)],
+         reporttime = properties.lastComplianceStatusChecked,
+         resources = properties.latestAssignmentReport.resources
 | mv-expand resources
 | project 
     bunit='azure',
@@ -71,24 +51,21 @@ guestconfigurationresources
     title=replace_string(tostring(resources.resourceId),'[WindowsControlTranslation]','')
 "@
 
-        $complianceresults = Search-AzGraph -Query $compliancequery -First 1000
-        Write-Host "Total row count: $($complianceresults.Count)" -ForegroundColor Cyan
+    $results = Search-AzGraph -Query $query -First 1000
+    Write-Host "Total compliance rows in subscription $($sub.Name): $($results.Count)" -ForegroundColor Cyan
 
-        foreach ($ctl in $complianceresults) {
-            $line = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
-            Add-Content -Path $csvfilepath -Value $line
-            $allResults += $ctl
-        }
+    foreach ($ctl in $results) {
+        $line = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title)"
+        Add-Content -Path $csvfilepath -Value $line
+        $allResults += $ctl
     }
 }
 
-# Export to JSON
-Write-Host "Convert CSV to JSON" -ForegroundColor Cyan
+# Convert to JSON
+Write-Host "Converting CSV to JSON..." -ForegroundColor Cyan
 $allResults | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding utf8
 
-Write-Host "All subscriptions processed and reports generated." -ForegroundColor Green
-
-
+Write-Host "✅ Finished processing all subscriptions." -ForegroundColor Green
 
 
 ---
