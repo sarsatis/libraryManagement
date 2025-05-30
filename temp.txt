@@ -1,15 +1,13 @@
 import os
 import subprocess
 import json
-import pandas as pd
 from datetime import datetime
 from time import time
 
 # -------------------- Login --------------------
-# Login via service principal
 TENANT_ID = "<NPE SP Tenant ID>"
 APP_ID = "<NPE SP App ID>"
-PASSWORD = ""  # Secure this in env var or keyvault ideally
+PASSWORD = ""  # Load this securely from environment or vault ideally
 
 print("Logging in using service principal...")
 subprocess.run([
@@ -24,10 +22,7 @@ subprocess.run([
 start_time = time()
 print(f"\033[93mStart Time: {datetime.now()}\033[0m")
 
-# -------------------- File Setup --------------------
-subscriptions = json.loads(subprocess.check_output(["az", "account", "list"]))
-print(f"\033[96mTotal subscriptions: {len(subscriptions)}\033[0m")
-
+# -------------------- Setup Output Paths --------------------
 current_date = datetime.now().strftime("%Y-%m-%d")
 filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{current_date}"
 csv_path = f"./sourcefiles/{filename}.csv"
@@ -38,15 +33,22 @@ for path in [csv_path, json_path]:
     if os.path.exists(path):
         os.remove(path)
 
-columns = ["bunit", "subscription", "report_id", "Date", "host_name", "region", "environment", "platform", "status", "id", "title"]
-df_all = pd.DataFrame(columns=columns)
+csv_header = "bunit,subscription,report_id,Date,host_name,region,environment,platform,status,id,title\n"
 
-# -------------------- Subscription Loop --------------------
+# -------------------- Get Subscriptions --------------------
+subscriptions = json.loads(subprocess.check_output(["az", "account", "list"]))
+print(f"\033[96mTotal subscriptions: {len(subscriptions)}\033[0m")
+
+all_results = []
+
+# -------------------- Loop Through Subscriptions --------------------
 for sub in subscriptions:
     sub_id = sub["id"]
     sub_name = sub["name"]
 
-    compliance_query = f"""
+    print(f"\033[96mProcessing: {sub_name} ({sub_id})\033[0m")
+
+    query = f"""
     guestconfigurationresources
     | where subscriptionId == '{sub_id}'
     | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
@@ -91,25 +93,48 @@ for sub in subscriptions:
     """
 
     try:
-        result = subprocess.check_output(["az", "graph", "query", "--query", compliance_query, "--output", "json"])
+        result = subprocess.check_output([
+            "az", "graph", "query", "--query", query, "--output", "json"
+        ], text=True)
+
         data = json.loads(result)["data"]
         if data:
-            print(f"\033[96mProcessing subscription: {sub_name} ({sub_id})\nTotal row count: {len(data)}\033[0m")
-            df = pd.DataFrame(data)
-            df_all = pd.concat([df_all, df], ignore_index=True)
+            print(f" -> Retrieved {len(data)} rows")
+            all_results.extend(data)
+        else:
+            print(" -> No data")
     except subprocess.CalledProcessError as e:
-        print(f"\033[91mFailed to process {sub_name}: {e}\033[0m")
+        print(f"\033[91mError processing subscription {sub_name}: {e}\033[0m")
 
-# -------------------- Export --------------------
-df_all.to_csv(csv_path, index=False)
-df_all.to_json(json_path, orient="records", indent=2)
-print("All subscriptions processed and exported to CSV & JSON")
+# -------------------- Write CSV --------------------
+with open(csv_path, "w", encoding="utf-8") as csv_file:
+    csv_file.write(csv_header)
+    for item in all_results:
+        line = ",".join([
+            item.get("bunit", ""),
+            item.get("subscription", ""),
+            item.get("report_id", ""),
+            item.get("Date", ""),
+            item.get("host_name", ""),
+            item.get("region", ""),
+            item.get("environment", ""),
+            item.get("platform", ""),
+            item.get("status", ""),
+            item.get("id", ""),
+            '"' + item.get("title", "").replace('"', '""') + '"'
+        ]) + "\n"
+        csv_file.write(line)
+
+# -------------------- Write JSON --------------------
+with open(json_path, "w", encoding="utf-8") as json_file:
+    json.dump(all_results, json_file, indent=2)
 
 # -------------------- End Timer --------------------
 end_time = time()
-duration = end_time - start_time
+duration = round(end_time - start_time, 2)
 print(f"\033[93mEnd Time: {datetime.now()}\033[0m")
-print(f"\033[92mTotal Execution Time: {round(duration, 2)} seconds\033[0m")
+print(f"\033[92mTotal Execution Time: {duration} seconds\033[0m")
+
 
 ----
 import subprocess
