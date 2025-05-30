@@ -4,6 +4,12 @@ import json
 import csv
 import os
 from datetime import datetime
+import urllib3
+
+# Disable InsecureRequestWarning if SSL verification is off
+VERIFY_SSL = False
+if not VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --------- Configurations ---------
 TENANT_ID = "<NPE SP Tenant ID>"
@@ -15,7 +21,7 @@ PROXIES = {
     # 'http': 'http://proxyaddress:port',
     # 'https': 'http://proxyaddress:port',
 }
-VERIFY_SSL = False  # Disable SSL cert validation
+# VERIFY_SSL = False  # already set above
 
 # Query template with subscription placeholder
 QUERY_TEMPLATE = """
@@ -91,7 +97,7 @@ def get_subscriptions(token):
 def run_resource_graph_query(token, subscription_id, skip=0, top=1000):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    
+
     query = QUERY_TEMPLATE.format(subscription_id=subscription_id)
     body = {
         "subscriptions": [subscription_id],
@@ -139,15 +145,12 @@ def main():
             data = result_json.get("data", [])
             count = len(data)
 
-            if count == 0:
-                # No more data to fetch
-                break
-
-            sub_rows.extend(data)
-            print(f"Fetched {count} rows from subscription '{sub_name}', skip={skip}")
+            if count > 0:
+                print(f"Fetched {count} rows from subscription '{sub_name}', skip={skip}")
+                sub_rows.extend(data)
 
             if count < page_size:
-                # Last page
+                # No more pages
                 break
             else:
                 skip += page_size
@@ -168,7 +171,6 @@ def main():
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         for row in all_rows:
-            # Ensure only keys from headers are written and handle missing keys
             filtered_row = {key: row.get(key, "") for key in headers}
             writer.writerow(filtered_row)
 
@@ -183,7 +185,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 *************************************************************
 import requests
