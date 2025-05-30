@@ -1,3 +1,142 @@
+import subprocess
+import json
+import csv
+import os
+from datetime import datetime
+
+# -------------------- Configuration --------------------
+TENANT_ID = "<NPE SP Tenant ID>"
+APP_ID = "<NPE SP App ID>"
+PASSWORD = ""  # Your SP password securely retrieved or stored
+
+# -------------------- Login --------------------
+print("Logging into Azure...")
+subprocess.run([
+    "az.cmd", "login",
+    "--service-principal",
+    "--username", APP_ID,
+    "--password", PASSWORD,
+    "--tenant", TENANT_ID
+], check=True)
+
+# -------------------- Setup --------------------
+start_time = datetime.now()
+print(f"Start Time: {start_time}")
+
+filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{start_time.strftime('%Y-%m-%d')}"
+csv_filepath = f"./sourcefiles/{filename}.csv"
+json_filepath = f"./sourcefiles/{filename}.json"
+os.makedirs("sourcefiles", exist_ok=True)
+
+# Remove old files if exist
+for path in [csv_filepath, json_filepath]:
+    if os.path.exists(path):
+        os.remove(path)
+
+header = ["bunit", "subscription", "report_id", "Date", "host_name", "region", "environment", "platform", "status", "id", "title"]
+all_data = []
+
+# -------------------- Get Subscriptions --------------------
+subs_raw = subprocess.check_output(["az.cmd", "account", "list", "--query", "[].{id:id, name:name}"])
+subscriptions = json.loads(subs_raw)
+print(f"Total subscriptions: {len(subscriptions)}")
+
+# -------------------- Main Loop --------------------
+for sub in subscriptions:
+    sub_id = sub["id"]
+    sub_name = sub["name"]
+
+    query = f"""
+guestconfigurationresources
+| where subscriptionId == '{sub_id}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources,
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| mv-expand reasons
+| order by id
+| project bunit='azure', subscription=subscriptionId, report_id=reportid,
+    Date=format_datetime(todatetime(reporttime), 'yyyy-MM-dd'), host_name=vmid,
+    region=location,
+    environment=case(tolower(substring(vmid,5,1))=='d','dev',tolower(substring(vmid,5,1))=='q','qa',
+                     tolower(substring(vmid,5,1))=='u','uat',tolower(substring(vmid,5,1))=='p','prod','UNKNOWN'),
+    platform=split(name,'_')[2],
+    status=iif(reasons.phrase contains 'This control is in the waiver list','skipped',
+               iif(resources.complianceStatus=='true','passed','failed')),
+    id=split(resources.resourceID,'_')[3],
+    title=replace_string(tostring(resources.resourceId),'[WindowsControlTranslation]','')
+""".strip()
+
+    # Pagination
+    batch_size = 1000
+    skip = 0
+    results = []
+
+    while True:
+        query_cmd = [
+            "az.cmd", "graph", "query", "--first", str(batch_size),
+            "--query", "data", "--graph-query", query
+        ]
+        if skip > 0:
+            query_cmd += ["--skip", str(skip)]
+
+        result_raw = subprocess.check_output(query_cmd, stderr=subprocess.DEVNULL)
+        page = json.loads(result_raw)
+
+        if not page:
+            break
+
+        results.extend(page)
+        skip += batch_size
+
+        if len(page) < batch_size:
+            break
+
+    if results:
+        print(f"Processing subscription: {sub_name} ({sub_id}) - Rows: {len(results)}")
+        for row in results:
+            line = [
+                row.get("bunit", ""),
+                row.get("subscription", ""),
+                row.get("report_id", ""),
+                row.get("Date", ""),
+                row.get("host_name", ""),
+                row.get("region", ""),
+                row.get("environment", ""),
+                row.get("platform", ""),
+                row.get("status", ""),
+                row.get("id", ""),
+                row.get("title", "").replace(",", " ")
+            ]
+            all_data.append(line)
+
+# -------------------- Write to CSV --------------------
+print("Writing CSV...")
+with open(csv_filepath, "w", newline='', encoding='utf-8') as f:
+    writer = csv.writer(f)
+    writer.writerow(header)
+    writer.writerows(all_data)
+
+# -------------------- Convert to JSON --------------------
+print("Converting CSV to JSON...")
+with open(csv_filepath, encoding='utf-8') as f:
+    reader = csv.DictReader(f)
+    json_data = list(reader)
+
+with open(json_filepath, "w", encoding='utf-8') as jf:
+    json.dump(json_data, jf, indent=2)
+
+# -------------------- Done --------------------
+end_time = datetime.now()
+print(f"End Time: {end_time}")
+print(f"Total Execution Time: {str(end_time - start_time)}")
+
+******************************************************************************************
 # -------------------- Secure Login --------------------
 $SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
 $TenantId = "<NPE SP Tenant ID>"
