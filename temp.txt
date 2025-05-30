@@ -21,8 +21,12 @@ $jsonFilePath = ".\sourcefiles\$filename.json"
 Remove-Item -Path $csvFilePath -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $jsonFilePath -Force -ErrorAction SilentlyContinue
 
+# Initialize list to accumulate all CSV lines
+$allCsvLines = @()
+
+# Add CSV header
 $csvHeader = "bunit,subscription,report_id,Date,host_name,region,environment,platform,status,id,title"
-Add-Content -Path $csvFilePath -Value $csvHeader
+$allCsvLines += $csvHeader
 
 # -------------------- Subscription Loop --------------------
 foreach ($sub in $subscriptions) {
@@ -79,15 +83,13 @@ guestconfigurationresources
     $allResults = @()
 
     do {
-        if ($skip -eq 0) {
-            $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize
-        } else {
-            $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize -Skip $skip
-        }
+        # Enforce minimum batch size of 1 to avoid error
+        $currentBatchSize = if ($batchSize -lt 1) { 1 } else { $batchSize }
 
+        $pagedResults = Search-AzGraph -Query $complianceQuery -First $currentBatchSize -Skip $skip
         $allResults += $pagedResults
-        $skip += $batchSize
-    } while ($pagedResults.Count -eq $batchSize)
+        $skip += $currentBatchSize
+    } while ($pagedResults.Count -eq $currentBatchSize)
 
     if ($allResults.Count -gt 0) {
         Write-Host "Processing subscription: $subName ($subId)" -ForegroundColor Cyan
@@ -95,21 +97,25 @@ guestconfigurationresources
 
         foreach ($r in $allResults) {
             $line = "$($r.bunit),$($r.subscription),$($r.report_id),$($r.Date),$($r.host_name),$($r.region),$($r.environment),$($r.platform),$($r.status),$($r.id),$($r.title)"
-            Add-Content -Path $csvFilePath -Value $line
+            $allCsvLines += $line
         }
     }
 }
 
+# Write all lines at once to CSV
+Write-Host "Writing all results to CSV file..." -ForegroundColor Yellow
+$allCsvLines | Set-Content -Path $csvFilePath -Encoding UTF8
+
 # -------------------- Export to JSON --------------------
-Write-Host "All subscriptions processed"
-Write-Host "Converting CSV to JSON..."
-Import-Csv -Path $csvFilePath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonFilePath -Encoding utf8
+Write-Host "Converting CSV to JSON..." -ForegroundColor Yellow
+Import-Csv -Path $csvFilePath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonFilePath -Encoding UTF8
 
 # -------------------- End Timer --------------------
 $endTime = Get-Date
 $duration = $endTime - $startTime
 Write-Host "End Time: $endTime" -ForegroundColor Yellow
 Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
+
 
 
 ***************************************************************************************************************************
