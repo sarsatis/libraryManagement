@@ -1,5 +1,33 @@
 import subprocess
 import json
+
+vm_query = """
+guestconfigurationresources
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project subscriptionId, id, name, location, vmid = split(properties.targetResourceId, '/')[array_length(split(properties.targetResourceId, '/')) - 1]
+| order by id
+"""
+
+result = subprocess.check_output([
+    "az.cmd", "graph", "query",
+    "--graph-query", vm_query,
+    "--first", "1000",
+    "--output", "json"
+], text=True)
+
+response = json.loads(result)
+vm_results = response.get("data", [])
+
+print("Total VMs fetched:", len(vm_results))
+print(json.dumps(vm_results, indent=2))  # pretty print to check vmid and other fields
+
+for vm in vm_results:
+    vmid = vm.get("vmid")
+    print(f" - VM: {vmid}")
+---
+import subprocess
+import json
 import csv
 import os
 from datetime import datetime
