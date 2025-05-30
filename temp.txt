@@ -16,12 +16,10 @@ TENANT_ID = "<NPE SP Tenant ID>"
 CLIENT_ID = "<NPE SP App ID>"
 CLIENT_SECRET = "<NPE SP App Secret>"  # keep this secure!
 
-# Proxy config: if no proxy needed, set to None or empty dict
 PROXIES = {
     # 'http': 'http://proxyaddress:port',
     # 'https': 'http://proxyaddress:port',
 }
-# VERIFY_SSL = False  # already set above
 
 # Query template with subscription placeholder
 QUERY_TEMPLATE = """
@@ -93,8 +91,8 @@ def get_subscriptions(token):
     subs = resp.json().get("value", [])
     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
 
-# --------- Run Query with Pagination ---------
-def run_resource_graph_query(token, subscription_id, skip=0, top=1000):
+# --------- Run Query (No Pagination) ---------
+def run_resource_graph_query(token, subscription_id):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -103,9 +101,7 @@ def run_resource_graph_query(token, subscription_id, skip=0, top=1000):
         "subscriptions": [subscription_id],
         "query": query,
         "options": {
-            "resultFormat": "objectArray",
-            "top": top,
-            "skip": skip
+            "resultFormat": "objectArray"
         }
     }
     response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
@@ -127,7 +123,6 @@ def main():
     csv_filepath = f"./sourcefiles/{filename}.csv"
     json_filepath = f"./sourcefiles/{filename}.json"
 
-    # Prepare CSV header
     headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
                "environment", "platform", "status", "id", "title"]
 
@@ -135,37 +130,19 @@ def main():
 
     for sub_id, sub_name in subscriptions:
         print(f"Processing subscription: {sub_name} ({sub_id})")
-
-        skip = 0
-        page_size = 1000
-        sub_rows = []
-
-        while True:
-            result_json = run_resource_graph_query(token, sub_id, skip=skip, top=page_size)
-            data = result_json.get("data", [])
-            count = len(data)
-
-            if count > 0:
-                print(f"Fetched {count} rows from subscription '{sub_name}', skip={skip}")
-                sub_rows.extend(data)
-
-            if count < page_size:
-                # No more pages
-                break
-            else:
-                skip += page_size
-
-        if len(sub_rows) > 0:
-            print(f"Total rows for subscription '{sub_name}': {len(sub_rows)}")
-            all_rows.extend(sub_rows)
+        result_json = run_resource_graph_query(token, sub_id)
+        data = result_json.get("data", [])
+        count = len(data)
+        if count > 0:
+            print(f"Fetched {count} rows from subscription '{sub_name}'")
+            all_rows.extend(data)
         else:
-            print(f"No rows returned for subscription '{sub_name}', skipping...")
+            print(f"No data returned for subscription '{sub_name}', skipping...")
 
     if len(all_rows) == 0:
         print("No data returned for any subscription. Exiting.")
         return
 
-    # Write CSV
     print(f"Writing data to CSV file: {csv_filepath}")
     with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
@@ -174,7 +151,6 @@ def main():
             filtered_row = {key: row.get(key, "") for key in headers}
             writer.writerow(filtered_row)
 
-    # Write JSON
     print(f"Writing data to JSON file: {json_filepath}")
     with open(json_filepath, mode="w", encoding="utf-8") as f:
         json.dump(all_rows, f, indent=2)
