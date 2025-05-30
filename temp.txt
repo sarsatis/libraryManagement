@@ -1,3 +1,20 @@
+# Pagination setup
+$batchSize = 1000
+$skip = 0
+$allResults = @()
+
+do {
+    if ($skip -eq 0) {
+        $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize
+    } else {
+        $pagedResults = Search-AzGraph -Query $complianceQuery -First $batchSize -Skip $skip
+    }
+
+    $allResults += $pagedResults
+    $skip += $batchSize
+} while ($pagedResults.Count -eq $batchSize)
+
+---
 # -------------------- Secure Login --------------------
 $SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
 $TenantId = "<NPE SP Tenant ID>"
