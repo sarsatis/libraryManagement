@@ -7,11 +7,11 @@ from time import time
 # -------------------- Login --------------------
 TENANT_ID = "<NPE SP Tenant ID>"
 APP_ID = "<NPE SP App ID>"
-PASSWORD = ""  # Ideally load securely
+PASSWORD = ""  # Fill this securely
 
 print("Logging in using service principal...")
 subprocess.run([
-    "az", "login",
+    "az.cmd", "login",
     "--service-principal",
     "--username", APP_ID,
     "--password", PASSWORD,
@@ -36,7 +36,7 @@ for path in [csv_path, json_path]:
 csv_header = "bunit,subscription,report_id,Date,host_name,region,environment,platform,status,id,title\n"
 
 # -------------------- Get Subscriptions --------------------
-subscriptions = json.loads(subprocess.check_output(["az", "account", "list"]))
+subscriptions = json.loads(subprocess.check_output(["az.cmd", "account", "list"]))
 print(f"Total subscriptions: {len(subscriptions)}")
 
 all_results = []
@@ -62,10 +62,10 @@ guestconfigurationresources
     vmid = split(properties.targetResourceId, '/')[(-1)],
     reportid = split(properties.latestReportId, '/')[(-1)], 
     reporttime = properties.lastComplianceStatusChecked
-| extend resources = iff(isnull(resources[0]), dynamic([{}]), resources)
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
 | mv-expand resources limit 1000
 | extend reasons = resources.reasons
-| extend reasons = iff(isnull(reasons[0]), dynamic([{}]), reasons)
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
 | mv-expand reasons
 | order by id
 | project 
@@ -94,26 +94,30 @@ guestconfigurationresources
 
     batch_size = 1000
     skip = 0
+    total_rows = 0
 
     while True:
         try:
             result = subprocess.check_output([
-                "az", "graph", "query",
-                "--query", kql_query,
+                "az.cmd", "graph", "query",
+                "--graph-query", kql_query,
                 "--first", str(batch_size),
                 "--skip", str(skip),
                 "--output", "json"
             ], text=True)
-            data = json.loads(result).get("data", [])
-            if not data:
+            response = json.loads(result)
+            data = response.get("data", [])
+            row_count = len(data)
+            if row_count == 0:
                 break
             all_results.extend(data)
+            total_rows += row_count
             skip += batch_size
         except subprocess.CalledProcessError as e:
             print(f"Error processing subscription {sub_name}: {e}")
             break
 
-    print(f" -> Retrieved {skip if skip else len(data)} rows")
+    print(f" -> Retrieved {total_rows} rows")
 
 # -------------------- Write CSV --------------------
 with open(csv_path, "w", encoding="utf-8") as csv_file:
@@ -144,7 +148,10 @@ duration = round(end_time - start_time, 2)
 print(f"End Time: {datetime.now()}")
 print(f"Total Execution Time: {duration} seconds")
 
----
+
+***************************************************************************************************************************
+
+
 # -------------------- Secure Login --------------------
 $SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
 $TenantId = "<NPE SP Tenant ID>"
