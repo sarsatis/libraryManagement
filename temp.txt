@@ -52,8 +52,9 @@ guestconfigurationresources
 | where subscriptionId == '{sub_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
-          reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources,
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
 | order by id
 | extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
 | mv-expand resources limit 1000
@@ -84,40 +85,39 @@ guestconfigurationresources
     title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 """.strip()
 
-    # Pagination
+    # Pagination using skipToken
     batch_size = 1000
-    skip = 0
     results = []
+    skip_token = None
 
     while True:
         query_cmd = [
-            "az.cmd", "graph", "query", "--first", str(batch_size),
-            "--query", "data", "--graph-query", query
+            "az.cmd", "graph", "query",
+            "--first", str(batch_size),
+            "--graph-query", query
         ]
-        if skip > 0:
-            query_cmd += ["--skip", str(skip)]
+
+        if skip_token:
+            query_cmd += ["--skip-token", skip_token]
 
         try:
-            result_raw = subprocess.check_output(query_cmd, stderr=subprocess.DEVNULL)
+            result_raw = subprocess.check_output(query_cmd)
             page = json.loads(result_raw)
-        except subprocess.CalledProcessError:
-            print(f"Query failed for subscription {sub_name} ({sub_id}), skipping.")
+            data = page.get("data", [])
+            results.extend(data)
+            print(f"Fetched {len(data)} rows from {sub_name}")
+
+            skip_token = page.get("skipToken")
+            if not skip_token:
+                break
+        except subprocess.CalledProcessError as e:
+            print(f"Query failed for subscription {sub_name} ({sub_id}): {e}")
             break
 
-        if not page:
-            break
-
-        results.extend(page)
-        print(f"Fetched {len(page)} rows from {sub_name}, skip={skip}")
-        skip += len(page)
-
-        if len(page) < batch_size:
-            break
-
-        time.sleep(0.2)  # optional throttle
+        time.sleep(0.2)  # Optional throttle
 
     if results:
-        print(f"Processing subscription: {sub_name} ({sub_id}) - Total Rows: {len(results)}")
+        print(f"Processing subscription: {sub_name} ({sub_id}) - Rows: {len(results)}")
         for row in results:
             line = [
                 row.get("bunit", ""),
@@ -154,6 +154,7 @@ with open(json_filepath, "w", encoding='utf-8') as jf:
 end_time = datetime.now()
 print(f"End Time: {end_time}")
 print(f"Total Execution Time: {str(end_time - start_time)}")
+
 
 
 ******************************************************************************************
