@@ -1,3 +1,9 @@
+
+# Print fetched results JSON to terminal
+        Write-Host "=== Fetched $($pagedResults.Count) rows from subscription '$subName' (skip=$skip) ===" -ForegroundColor Magenta
+        $pagedResults | ConvertTo-Json -Depth 5 | Write-Host
+---
+
 import subprocess
 import json
 import csv
