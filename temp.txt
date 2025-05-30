@@ -1,152 +1,139 @@
-import os
 import subprocess
 import json
+import csv
+import os
 from datetime import datetime
-from time import time
+import time
 
-# -------------------- Login --------------------
-TENANT_ID = "<NPE SP Tenant ID>"
-APP_ID = "<NPE SP App ID>"
-PASSWORD = ""  # Fill this securely
+output_dir = "./sourcefiles"
+os.makedirs(output_dir, exist_ok=True)
 
-print("Logging in using service principal...")
-subprocess.run([
-    "az.cmd", "login",
-    "--service-principal",
-    "--username", APP_ID,
-    "--password", PASSWORD,
-    "--tenant", TENANT_ID
-], check=True)
-
-# -------------------- Start Timer --------------------
-start_time = time()
-print(f"Start Time: {datetime.now()}")
-
-# -------------------- Setup Output Paths --------------------
 current_date = datetime.now().strftime("%Y-%m-%d")
 filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{current_date}"
-csv_path = f"./sourcefiles/{filename}.csv"
-json_path = f"./sourcefiles/{filename}.json"
+csv_path = os.path.join(output_dir, f"{filename}.csv")
+json_path = os.path.join(output_dir, f"{filename}.json")
 
-os.makedirs("sourcefiles", exist_ok=True)
+# Remove old files
 for path in [csv_path, json_path]:
     if os.path.exists(path):
         os.remove(path)
 
-csv_header = "bunit,subscription,report_id,Date,host_name,region,environment,platform,status,id,title\n"
+csv_headers = [
+    "bunit", "subscription", "report_id", "date", "host_name", "region",
+    "environment", "platform", "status", "id", "title"
+]
 
-# -------------------- Get Subscriptions --------------------
-subscriptions = json.loads(subprocess.check_output(["az.cmd", "account", "list"]))
-print(f"Total subscriptions: {len(subscriptions)}")
+start_time = time.time()
+with open(csv_path, mode='w', newline='', encoding='utf-8') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(csv_headers)
 
-all_results = []
+    # Get all subscriptions
+    sub_result = subprocess.check_output(["az.cmd", "account", "list", "--output", "json"], text=True)
+    subscriptions = json.loads(sub_result)
+    print(f"Total subscriptions: {len(subscriptions)}")
 
-# -------------------- Loop Through Subscriptions --------------------
-for sub in subscriptions:
-    sub_id = sub["id"]
-    sub_name = sub["name"]
+    for sub in subscriptions:
+        sub_start_time = time.time()
 
-    print(f"Processing: {sub_name} ({sub_id})")
+        sub_id = sub["id"]
+        sub_name = sub["name"]
+        subprocess.call(["az.cmd", "account", "set", "--subscription", sub_id])
 
-    kql_query = f"""
+        print(f"\n-> Processing Subscription: {sub_name} ({sub_id})")
+
+        vm_query = f"""
 guestconfigurationresources
 | where subscriptionId == '{sub_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project 
-    subscriptionId, 
-    id, 
-    name, 
-    location, 
-    resources = properties.latestAssignmentReport.resources, 
-    vmid = split(properties.targetResourceId, '/')[(-1)],
-    reportid = split(properties.latestReportId, '/')[(-1)], 
-    reporttime = properties.lastComplianceStatusChecked
+| project subscriptionId, id, name, location, vmid = split(properties.targetResourceId, '/')[(-1)],
+  reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| order by id
+"""
+
+        try:
+            vm_output = subprocess.check_output([
+                "az.cmd", "graph", "query",
+                "--graph-query", vm_query,
+                "--first", "1000",
+                "--output", "json"
+            ], text=True)
+
+            vm_results = json.loads(vm_output).get("data", [])
+            if not vm_results:
+                print("No VMs found in this subscription.")
+                continue
+
+            print(f"VMs found: {len(vm_results)}")
+
+            for vm in vm_results:
+                vmid = vm.get("vmid")
+                print(f"  - VM: {vmid}")
+                vm_id = vm.get("id")
+
+                compliance_query = f"""
+guestconfigurationresources
+| where id == '{vm_id}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
+  reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| order by id
 | extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
 | mv-expand resources limit 1000
 | extend reasons = resources.reasons
 | extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
 | mv-expand reasons
-| order by id
-| project 
-    bunit = "azure", 
-    subscription = subscriptionId, 
-    report_id = reportid, 
-    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
-    host_name = vmid,
-    region = location, 
-    environment = case(
-        tolower(substring(vmid, 5, 1)) == "d", "dev",
-        tolower(substring(vmid, 5, 1)) == "q", "qa",
-        tolower(substring(vmid, 5, 1)) == "u", "uat",
-        tolower(substring(vmid, 5, 1)) == "p", "prod",
-        "UNKNOWN"
-    ),
-    platform = split(name, "_")[2], 
-    status = iif(
-        reasons.phrase contains "This control is in the waiver list", 
-        "skipped", 
-        iif(resources.complianceStatus == "true", "passed", "failed")
-    ),
-    id = split(resources.resourceID, "_")[3], 
-    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+| project bunit='azure', subscription=subscriptionId, report_id=reportid, date=format_datetime(todatetime(reporttime), 'yyyy-MM-dd'), host_name=vmid,
+  region=location, environment=case(
+    tolower(substring(vmid,5,1))=='d','dev',
+    tolower(substring(vmid,5,1))=='q','qa',
+    tolower(substring(vmid,5,1))=='u','uat',
+    tolower(substring(vmid,5,1))=='p','prod',
+    'UNKNOWN'),
+  platform=split(name,'_')[2], 
+  status=iif(reasons.phrase contains 'This control is in the waiver list','skipped',
+             iif(resources.complianceStatus=='true','passed','failed')),
+  id=split(resources.resourceID,'_')[3], 
+  title=replace_string(tostring(resources.resourceId),'[WindowsControlTranslation]','')
 """
 
-    batch_size = 1000
-    skip = 0
-    total_rows = 0
+                try:
+                    compliance_output = subprocess.check_output([
+                        "az.cmd", "graph", "query",
+                        "--graph-query", compliance_query,
+                        "--first", "1000",
+                        "--output", "json"
+                    ], text=True)
 
-    while True:
-        try:
-            result = subprocess.check_output([
-                "az.cmd", "graph", "query",
-                "--graph-query", kql_query,
-                "--first", str(batch_size),
-                "--skip", str(skip),
-                "--output", "json"
-            ], text=True)
-            response = json.loads(result)
-            data = response.get("data", [])
-            row_count = len(data)
-            if row_count == 0:
-                break
-            all_results.extend(data)
-            total_rows += row_count
-            skip += batch_size
+                    compliance_results = json.loads(compliance_output).get("data", [])
+                    for entry in compliance_results:
+                        row = [entry.get(h, "") for h in csv_headers]
+                        writer.writerow(row)
+
+                except subprocess.CalledProcessError as e:
+                    print(f"    -> Compliance query failed: {e}")
+
         except subprocess.CalledProcessError as e:
-            print(f"Error processing subscription {sub_name}: {e}")
-            break
+            print(f"Failed VM query in subscription {sub_name}: {e}")
 
-    print(f" -> Retrieved {total_rows} rows")
+        sub_elapsed = time.time() - sub_start_time
+        print(f"-> Finished processing subscription '{sub_name}' in {sub_elapsed:.2f} seconds")
 
-# -------------------- Write CSV --------------------
-with open(csv_path, "w", encoding="utf-8") as csv_file:
-    csv_file.write(csv_header)
-    for item in all_results:
-        line = ",".join([
-            item.get("bunit", ""),
-            item.get("subscription", ""),
-            item.get("report_id", ""),
-            item.get("Date", ""),
-            item.get("host_name", ""),
-            item.get("region", ""),
-            item.get("environment", ""),
-            item.get("platform", ""),
-            item.get("status", ""),
-            item.get("id", ""),
-            '"' + item.get("title", "").replace('"', '""') + '"'
-        ]) + "\n"
-        csv_file.write(line)
 
-# -------------------- Write JSON --------------------
-with open(json_path, "w", encoding="utf-8") as json_file:
-    json.dump(all_results, json_file, indent=2)
+print(f"CSV report saved to {csv_path}")
+print(f"JSON report saved to {json_path}")
 
-# -------------------- End Timer --------------------
-end_time = time()
-duration = round(end_time - start_time, 2)
-print(f"End Time: {datetime.now()}")
-print(f"Total Execution Time: {duration} seconds")
+# Convert CSV to JSON
+with open(csv_path, newline='', encoding='utf-8') as csvfile:
+    reader = csv.DictReader(csvfile)
+    json_data = list(reader)
+    with open(json_path, 'w', encoding='utf-8') as jsonfile:
+        json.dump(json_data, jsonfile, indent=2)
+
+total_elapsed = time.time() - start_time
+print(f"\nAll subscriptions processed in {total_elapsed:.2f} seconds.")
 
 
 ***************************************************************************************************************************
