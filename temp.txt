@@ -1,3 +1,27 @@
+Subject: Request for GCS-Approved CIS Benchmark Document for Waivers Automation
+
+Hi Prabhu,
+
+Thank you again for walking me through the consolidated document containing the GCS-approved CIS benchmark IDs. It was helpful to see how the discrepancies we observed—especially with Amazon Linux 2023—have been addressed.
+
+As discussed, we’re currently working on automating the validation of Amazon Inspector 2 scan results against GCS-approved CIS profiles. The goal is to programmatically mark any previously approved findings as “Skipped,” regardless of their Inspector 2 status, to ensure more accurate compliance reporting.
+
+To support this, we are generating a waivers.yaml file per platform that lists all the GCS-approved CIS IDs. This file is critical to our exemption processing logic and directly impacts downstream systems.
+
+The document you showed during our call appears to be exactly what we need. However, we still need to investigate further to ensure it includes coverage for all required platforms (Amazon Linux 2/2023, Windows Server 2019/2022, Rocky Linux 8, RHEL 8.8/8.10, etc.). For that analysis, we’ll need access to the full document.
+
+As you mentioned, it’s currently pending security approvals for external sharing. Per your suggestion, I’m reaching out formally—and copying my manager [Manager’s Full Name]—to request access to this document. Having access will allow us to confirm platform coverage and ensure we’re working with a consistent and authoritative data source.
+
+Please let us know if there’s anything further you need from our side to help move this forward with the security team.
+
+Appreciate your support!
+
+Best regards,
+Sarthak S
+[Your Job Title]
+[Your Team or Department]
+[Your Company Name]
+---
 import requests
 import msal
 import json
