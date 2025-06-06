@@ -1,3 +1,116 @@
+foreach ($baseline in $baselines) {
+
+    Write-Host "Processing baseline: $baseline" -ForegroundColor Magenta
+
+    $filename = "${baseline}_$currentdate"
+    $csvfilepath = ".\sourcefiles\$filename.csv"
+    $jsonfilepath = ".\sourcefiles\$filename.json"
+
+    if (Test-Path $csvfilepath) { 
+        Remove-Item -Path $csvfilepath -Force 
+        Remove-Item -Path $jsonfilepath -Force
+    }
+
+    $allCsvLines = @()
+    $csvHeader = "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title,message"
+    $allCsvLines += $csvHeader
+
+    $totalVMs = 0  # Track number of VMs with data
+
+    foreach ($sub in $subscriptions) {
+
+        $VMquery = @"
+guestconfigurationresources
+| where subscriptionId == '$($sub.Id)'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains '$baseline'
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
+reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| order by id
+"@
+
+        $VMresults = Search-AzGraph -Query $VMquery
+        if ($VMresults.count -eq 0) { continue }
+
+        Write-Host "Querying subscription: $($sub.Name) ($($sub.Id)) — Total VMs: $($VMresults.count)" -ForegroundColor Cyan
+
+        foreach ($vm in $VMresults) {
+            Write-Host "Processing VM: $($vm.vmid)" -ForegroundColor Cyan
+
+            $compliancequery = @"
+guestconfigurationresources
+| where id == '$($vm.id)'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains '$baseline'
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
+reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| order by id
+| extend resources = iff(isnull(resources[0]), dynamic([{}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{}]), reasons)
+| mv-expand reasons
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        reasons.phrase contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    id = split(resources.resourceID, "_")[3], 
+    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
+    message = reasons.phrase
+"@
+
+            $batchsize = 1000
+            $skip = 0
+            $complianceResults = @()
+
+            do {
+                $pagedResults = if ($skip -eq 0) {
+                    Search-AzGraph -Query $compliancequery -First $batchsize
+                } else {
+                    Search-AzGraph -Query $compliancequery -First $batchsize -Skip $skip
+                }
+                $complianceResults += $pagedResults
+                $skip += $batchsize
+            } while ($pagedResults.Count -eq $batchsize)
+
+            if ($complianceResults.Count -gt 0) {
+                $totalVMs += 1
+            }
+
+            foreach ($ctl in $complianceResults) {
+                $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.id),$($ctl.title),$($ctl.message)"
+                $allCsvLines += $resultline
+            }
+        }
+    }
+
+    # Write CSV + JSON
+    Write-Host "Writing results to: $csvfilepath" -ForegroundColor Yellow
+    $allCsvLines | Set-Content -Path $csvfilepath -Encoding UTF8
+
+    Write-Host "Converting to JSON: $jsonfilepath" -ForegroundColor Yellow
+    Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding UTF8
+
+    Write-Host "Total VMs with compliance data for baseline $baseline: $totalVMs" -ForegroundColor Green
+}
+
+---
 Subject: Request for GCS-Approved CIS Benchmark Document for Waivers Automation
 
 Hi Prabhu,
