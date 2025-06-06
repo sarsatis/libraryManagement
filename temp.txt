@@ -1,3 +1,26 @@
+# -------------------- Secure Login --------------------
+$SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
+$TenantId = "<NPE SP Tenant ID>"
+$ApplicationId = "<NPE SP App ID>"
+$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
+Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
+
+# -------------------- Start Timer --------------------
+$startTime = Get-Date
+Write-Host "Start Time: $startTime" -ForegroundColor Yellow
+
+# -------------------- Prepare --------------------
+$subscriptions = Get-AzSubscription
+Write-Host "Total subscriptions: $($subscriptions.count)" -ForegroundColor Cyan
+
+$currentdate = Get-Date -Format "yyyy-MM-dd"
+
+# List of baselines to process
+$baselines = @(
+    "CIS_Benchmark_Windows2022_Baseline_1_0",
+    "CIS_Benchmark_Windows2019_Baseline_1_0"
+)
+
 foreach ($baseline in $baselines) {
 
     Write-Host "Processing baseline: $baseline" -ForegroundColor Magenta
@@ -6,8 +29,8 @@ foreach ($baseline in $baselines) {
     $csvfilepath = ".\sourcefiles\$filename.csv"
     $jsonfilepath = ".\sourcefiles\$filename.json"
 
-    if (Test-Path $csvfilepath) { 
-        Remove-Item -Path $csvfilepath -Force 
+    if (Test-Path $csvfilepath) {
+        Remove-Item -Path $csvfilepath -Force
         Remove-Item -Path $jsonfilepath -Force
     }
 
@@ -15,7 +38,7 @@ foreach ($baseline in $baselines) {
     $csvHeader = "bunit,subscription,report_id,date,host_name,region,environment,platform,status,id,title,message"
     $allCsvLines += $csvHeader
 
-    $totalVMs = 0  # Track number of VMs with data
+    $totalVMs = 0
 
     foreach ($sub in $subscriptions) {
 
@@ -100,15 +123,24 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
         }
     }
 
-    # Write CSV + JSON
-    Write-Host "Writing results to: $csvfilepath" -ForegroundColor Yellow
+    # -------------------- Write results to CSV --------------------
+    Write-Host "Writing results to CSV: $csvfilepath" -ForegroundColor Yellow
     $allCsvLines | Set-Content -Path $csvfilepath -Encoding UTF8
 
-    Write-Host "Converting to JSON: $jsonfilepath" -ForegroundColor Yellow
+    # -------------------- Convert to JSON --------------------
+    Write-Host "Converting CSV to JSON: $jsonfilepath" -ForegroundColor Yellow
     Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding UTF8
 
-    Write-Host "Total VMs with compliance data for baseline $baseline: $totalVMs" -ForegroundColor Green
+    # -------------------- Print Summary --------------------
+    Write-Host "Total VMs with data for $baseline: $totalVMs" -ForegroundColor Green
 }
+
+# -------------------- End Timer --------------------
+$endTime = Get-Date
+$duration = $endTime - $startTime
+Write-Host "End Time: $endTime" -ForegroundColor Yellow
+Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
+
 
 ---
 Subject: Request for GCS-Approved CIS Benchmark Document for Waivers Automation
