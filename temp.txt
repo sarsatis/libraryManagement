@@ -2,6 +2,27 @@ Subject: Request for GCS-Approved CIS Benchmark Document for Waivers Automation
 
 Hi Prabhu,
 
+Thank you again for taking the time to walk me through the consolidated document containing the GCS-approved CIS benchmark IDs across supported platforms. It was very helpful to see that the discrepancies I had previously observed—particularly with Amazon Linux 2023—are addressed clearly in this version.
+
+As discussed, we are currently working on automating the validation of Amazon Inspector 2 scan results against GCS-approved CIS profiles. The goal is to programmatically mark any previously approved findings as “Skipped,” irrespective of their actual scan status, to improve the accuracy of compliance reporting.
+
+To enable this functionality, we are generating a waivers.yaml file per platform, listing the GCS-approved CIS IDs. This file will be consumed by downstream exemption processing systems. For this to work reliably, we need access to a complete and consistent source of truth across all platforms—Amazon Linux 2/2023, Windows Server 2019/2022, Rocky Linux 8, RHEL 8.8/8.10, etc.
+
+The document you showed during our call seems to be exactly what we need. I understand that it’s currently under review by the security team and cannot be shared without proper approvals. As you suggested, I’m formally requesting access to this document and copying my manager [Manager’s Full Name] to highlight the importance and urgency of this requirement.
+
+This file is essential for ensuring that our exemption logic functions correctly and that compliance reporting remains consistent and auditable.
+
+Please let us know if there's anything further you need from our side to help expedite the approval process.
+
+Thanks again for your support.
+
+Best regards,
+Sarthak S
+---
+Subject: Request for GCS-Approved CIS Benchmark Document for Waivers Automation
+
+Hi Prabhu,
+
 Thank you again for walking me through the consolidated document containing the GCS-approved CIS benchmark IDs. It was helpful to see how the discrepancies we observed—especially with Amazon Linux 2023—have been addressed.
 
 As discussed, we’re currently working on automating the validation of Amazon Inspector 2 scan results against GCS-approved CIS profiles. The goal is to programmatically mark any previously approved findings as “Skipped,” regardless of their Inspector 2 status, to ensure more accurate compliance reporting.
