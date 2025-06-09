@@ -104,8 +104,11 @@ guestconfigurationresources
         } while ($pagedResults.Count -eq $batchSize)
 
         if ($allResults.Count -gt 0) {
-            Write-Host "[$baseline] - $subName ($subId): $($allResults.Count) rows" -ForegroundColor Cyan
-            $baselineTotalVms += $allResults.Count
+            
+            $uniqueVmCount = ($allResults | Select-Object -ExpandProperty host_name -Unique).Count
+            Write-Host "[$baseline] - $subName ($subId): $uniqueVmCount unique VMs" -ForegroundColor Cyan
+            $baselineTotalVms += $uniqueVmCount
+
 
             foreach ($r in $allResults) {
                 $line = "$($r.bunit),$($r.subscription),$($r.report_id),$($r.Date),$($r.host_name),$($r.region),$($r.environment),$($r.platform),$($r.status),$($r.cis_id),$($r.id),$($r.message -replace '\r?\n', ' ')"
@@ -123,7 +126,7 @@ guestconfigurationresources
     Import-Csv -Path $csvFilePath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonFilePath -Encoding UTF8
 
     # Print summary
-    Write-Host "Total VMs for baseline [$baseline]: $baselineTotalVms" -ForegroundColor Green
+    Write-Host "✅ Total unique VMs for baseline [$baseline]: $baselineTotalVms" -ForegroundColor Green
 }
 
 # -------------------- End Timer --------------------
@@ -131,6 +134,7 @@ $endTime = Get-Date
 $duration = $endTime - $startTime
 Write-Host "End Time: $endTime" -ForegroundColor Yellow
 Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
+
 
 
 -------------------
