@@ -87,7 +87,7 @@ guestconfigurationresources
     ),
     cis_id = split(resources.resourceId, "_")[3], 
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
-    message = tostring(reasons.phrase)
+    message = trim(" ", replace_string(replace_string(tostring(reasons.phrase), "\n", " "), "\r", " "))
 """
 
 def get_access_token(tenant_id, client_id, client_secret):
