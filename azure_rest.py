@@ -6,12 +6,17 @@ import os
 from datetime import datetime
 import urllib3
 from collections import defaultdict
+from colorama import init, Fore, Style
 
-# --------- Disable SSL warnings if verification is disabled ---------
+# --------- Initialize Colorama ---------
+init(autoreset=True)
+
+# --------- Disable SSL warnings ---------
 VERIFY_SSL = False
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# --------- Environment Variables ---------
 tenant_id = os.getenv("tenant_id")
 client_id = os.getenv("client_id")
 client_secret = os.getenv("client_secret")
@@ -26,12 +31,13 @@ PROXIES = {
     'https': 'http://statestr.com:80',
 }
 
-# --------- List of Baselines to Iterate Over ---------
+# --------- List of Baselines ---------
 BASELINES = [
     "CIS_Benchmark_Windows2022_Baseline_1_0",
-    # Add more baseline names here if needed
+    # Add more baselines here if needed
 ]
 
+# --------- KQL Query Template ---------
 QUERY_TEMPLATE = """
 guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
@@ -74,24 +80,25 @@ guestconfigurationresources
     ),
     cis_id = split(resources.resourceId, "_")[3], 
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
-    message = reason.phrase
+    message = reasons.phrase
 """
 
-def log(msg):
-    print(msg)
+# --------- Colored Logger ---------
+def log(msg, color=Fore.WHITE):
+    print(f"{color}{msg}{Style.RESET_ALL}")
 
+# --------- Azure Token ---------
 def get_access_token(tenant_id, client_id, client_secret):
     authority = f"https://login.microsoftonline.com/{tenant_id}"
     scope = ["https://management.azure.com/.default"]
-    app = msal.ConfidentialClientApplication(
-        client_id, authority=authority, client_credential=client_secret,
-    )
+    app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=client_secret)
     result = app.acquire_token_for_client(scopes=scope)
     if "access_token" in result:
         return result["access_token"]
     else:
         raise Exception(f"Failed to get token: {result.get('error_description')}")
 
+# --------- Get Subscriptions ---------
 def get_subscriptions(token):
     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
     headers = {"Authorization": f"Bearer {token}"}
@@ -100,6 +107,7 @@ def get_subscriptions(token):
     subs = resp.json().get("value", [])
     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
 
+# --------- Run Resource Graph Query ---------
 def run_resource_graph_query(token, subscription_id, baseline):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -113,9 +121,7 @@ def run_resource_graph_query(token, subscription_id, baseline):
         body = {
             "subscriptions": [subscription_id],
             "query": query,
-            "options": {
-                "resultFormat": "objectArray"
-            }
+            "options": {"resultFormat": "objectArray"}
         }
         if skip_token:
             body["options"]["$skipToken"] = skip_token
@@ -126,8 +132,8 @@ def run_resource_graph_query(token, subscription_id, baseline):
 
         data = result_json.get("data", [])
         all_results.extend(data)
-        if len(data) > 0
-           log(f"Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})")
+        if data:
+            log(f"  Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})", Fore.LIGHTBLACK_EX)
 
         skip_token = result_json.get("$skipToken")
         if not skip_token:
@@ -138,21 +144,22 @@ def run_resource_graph_query(token, subscription_id, baseline):
 
 # --------- Main Execution ---------
 def main():
-    log("Authenticating and acquiring token...")
+    log("Authenticating and acquiring token...", Fore.GREEN)
     token = get_access_token(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
 
-    log("Retrieving Azure subscriptions...")
+    log("Retrieving Azure subscriptions...", Fore.YELLOW)
     subscriptions = get_subscriptions(token)
-    log(f"Total subscriptions: {len(subscriptions)}")
+    log(f"Total subscriptions: {len(subscriptions)}", Fore.YELLOW)
 
     start_time = datetime.now()
-    log(f"Start Time: {start_time}")
+    log(f"Start Time: {start_time}", Fore.GREEN)
 
     current_date = start_time.strftime('%Y-%m-%d')
     os.makedirs("sourcefiles", exist_ok=True)
 
     for baseline in BASELINES:
-        log(f"\n--- Processing Baseline: {baseline} ---")
+        log(f"\n--- Processing Baseline: {baseline} ---", Fore.BLUE)
+
         filename = f"{baseline}_REST_{current_date}"
         csv_filepath = f"./sourcefiles/{filename}.csv"
         json_filepath = f"./sourcefiles/{filename}.json"
@@ -164,29 +171,25 @@ def main():
         unique_vm_set = set()
 
         for sub_id, sub_name in subscriptions:
-            # log(f"\nProcessing subscription: {sub_name} ({sub_id})")
             results = run_resource_graph_query(token, sub_id, baseline)
 
-            # Group by VM
             vm_control_map = defaultdict(list)
             for r in results:
                 vm_control_map[r["host_name"]].append(r)
 
             for vm, controls in vm_control_map.items():
                 unique_vm_set.add(vm)
-                log(f"  VM: {vm} - {len(controls)} controls")
-                for control in controls:
-                    all_rows.append(control)
+                log(f"{baseline} - {sub_name} ({sub_id}) ({vm}) : {len(controls)} controls", Fore.MAGENTA)
+                all_rows.extend(controls)
 
-        # Summary before writing
-        log(f"\nTotal unique VMs for {baseline}: {len(unique_vm_set)}")
-        log(f"Total rows (controls): {len(all_rows)}")
+        log(f"\nTotal unique VMs for baseline [{baseline}]: {len(unique_vm_set)}", Fore.CYAN)
+        log(f"Total rows for baseline [{baseline}]: {len(all_rows)}", Fore.CYAN)
 
         if not all_rows:
-            log(f"No compliance data found for baseline: {baseline}")
+            log(f"No compliance data found for baseline: {baseline}", Fore.RED)
             continue
 
-        log(f"\nWriting CSV to: {csv_filepath}")
+        log(f"Writing CSV to: {csv_filepath}", Fore.LIGHTBLUE_EX)
         with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
@@ -194,16 +197,16 @@ def main():
                 filtered_row = {key: row.get(key, "") for key in headers}
                 writer.writerow(filtered_row)
 
-        log(f"Writing JSON to: {json_filepath}")
+        log(f"Writing JSON to: {json_filepath}", Fore.LIGHTBLUE_EX)
         with open(json_filepath, mode="w", encoding="utf-8") as f:
             json.dump(all_rows, f, indent=2)
 
-        log(f"\nDone writing for baseline: {baseline}")
+        log(f"Done writing for baseline: {baseline}", Fore.GREEN)
 
     end_time = datetime.now()
     duration = end_time - start_time
-    log(f"\nEnd Time: {end_time}")
-    log(f"Total Execution Time: {duration}")
+    log(f"\nEnd Time: {end_time}", Fore.GREEN)
+    log(f"Total Execution Time: {duration}", Fore.GREEN)
 
 if __name__ == "__main__":
     main()
