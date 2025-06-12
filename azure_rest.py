@@ -50,6 +50,8 @@ guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains '{baseline}'
+| extend raw_message = tostring(reasons.phrase)
+| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\n", " "), "\r", " "))
 | project 
     subscriptionId, 
     id, 
@@ -87,7 +89,7 @@ guestconfigurationresources
     ),
     cis_id = split(resources.resourceId, "_")[3], 
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
-    message = trim(" ", replace_string(replace_string(tostring(reasons.phrase), "\n", " "), "\r", " "))
+    message = clean_message
 """
 
 def get_access_token(tenant_id, client_id, client_secret):
