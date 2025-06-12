@@ -201,11 +201,23 @@ def run_resource_graph_query(token, subscription_id, baseline):
     return all_results
 
 def filter_message(message):
-    # Remove unwanted message strings
-    for bad_str in ["-------------", "============", "++++++++++++"]:
-        if bad_str in message:
-            return ""  # Remove message completely if contains these patterns
-    return message
+    # Patterns to remove (literal sequences of +, -, = signs of length >= 5)
+    patterns = [
+        r"\++",    # one or more plus signs
+        r"\-+",    # one or more minus signs
+        r"\=+"     # one or more equal signs
+    ]
+
+    # Combine patterns into one regex pattern
+    combined_pattern = "(" + "|".join(patterns) + ")"
+
+    # Substitute all occurrences with empty string
+    cleaned_message = re.sub(combined_pattern, "", message)
+
+    # Also trim any leading/trailing whitespace after removal
+    cleaned_message = cleaned_message.strip()
+
+    return cleaned_message
 
 # --------- Main ---------
 def main():
