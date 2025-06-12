@@ -202,20 +202,15 @@ def run_resource_graph_query(token, subscription_id, baseline):
     return all_results
 
 def filter_message(message):
-    # Patterns to remove (literal sequences of +, -, = signs of length >= 5)
+    # Patterns to remove (literal sequences of +, -, = signs of length >= 1)
     patterns = [
         r"\++",    # one or more plus signs
         r"\-+",    # one or more minus signs
         r"\=+"     # one or more equal signs
     ]
 
-    # Combine patterns into one regex pattern
     combined_pattern = "(" + "|".join(patterns) + ")"
-
-    # Substitute all occurrences with empty string
     cleaned_message = re.sub(combined_pattern, "", message)
-
-    # Also trim any leading/trailing whitespace after removal
     cleaned_message = cleaned_message.strip()
 
     return cleaned_message
@@ -235,24 +230,19 @@ def main():
     current_date = start_time.strftime('%Y-%m-%d')
     os.makedirs("sourcefiles", exist_ok=True)
 
-    # Detect environment from client_id to append to filename
     env_label = "UNKNOWN"
-    # You can add your actual client_id strings here for NPE and PROD and map them
     NPE_CLIENT_IDS = {
-        # Add your known NPE client IDs here, e.g.
-        # "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        # Add your known NPE client IDs here
     }
     PROD_CLIENT_IDS = {
-        # Add your known PROD client IDs here, e.g.
-        # "ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj",
+        # Add your known PROD client IDs here
     }
-    # Simplified matching: exact string matching
+
     if CLIENT_ID in NPE_CLIENT_IDS:
         env_label = "NPE"
     elif CLIENT_ID in PROD_CLIENT_IDS:
         env_label = "PROD"
     else:
-        # fallback heuristic: if client id contains 'prod' string, else npe
         if "prod" in CLIENT_ID.lower():
             env_label = "PROD"
         else:
@@ -277,12 +267,7 @@ def main():
             results = run_resource_graph_query(token, sub_id, baseline)
 
             for r in results:
-                # Filter unwanted message strings here
                 r["message"] = filter_message(r.get("message", ""))
-
-                # Only add rows with non-empty message
-                # (optional, if you want to skip rows with filtered out messages, otherwise remove this check)
-                # If you want to keep them regardless, comment out below if.
                 if r["message"] == "":
                     continue
 
@@ -297,9 +282,11 @@ def main():
             log(f"No compliance data found for baseline: {baseline}", RED)
             continue
 
+        # Updated printing format with colors
         for sub_name, vms in vm_control_info.items():
+            log(f"{baseline} - {sub_name}", MAGENTA)
             for vm, controls in vms.items():
-                log(f"{baseline} - {sub_name} ({vm}) : {len(controls)} controls", MAGENTA)
+                log(f"    ({vm}) : {len(controls)} controls", CYAN)
 
         log(f"\nWriting CSV to: {csv_filepath}", GREEN)
         with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
