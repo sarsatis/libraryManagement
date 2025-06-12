@@ -26,11 +26,17 @@ PROXIES = {
     'https': 'http://statestr.com:80',
 }
 
+# --------- List of Baselines to Iterate Over ---------
+BASELINES = [
+    "CIS_Benchmark_Windows2022_Baseline_1_0",
+    # Add more baseline names here if needed
+]
+
 QUERY_TEMPLATE = """
 guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
-| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| where name contains '{baseline}'
 | project 
     subscriptionId, 
     id, 
@@ -93,10 +99,10 @@ def get_subscriptions(token):
     subs = resp.json().get("value", [])
     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
 
-def run_resource_graph_query(token, subscription_id):
+def run_resource_graph_query(token, subscription_id, baseline):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    query = QUERY_TEMPLATE.format(subscription_id=subscription_id)
+    query = QUERY_TEMPLATE.format(subscription_id=subscription_id, baseline=baseline)
 
     all_results = []
     page = 1
@@ -141,56 +147,60 @@ def main():
     log(f"Start Time: {start_time}")
 
     current_date = start_time.strftime('%Y-%m-%d')
-    filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_REST_{current_date}"
     os.makedirs("sourcefiles", exist_ok=True)
-    csv_filepath = f"./sourcefiles/{filename}.csv"
-    json_filepath = f"./sourcefiles/{filename}.json"
 
-    headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
-               "environment", "platform", "status", "id", "title"]
+    for baseline in BASELINES:
+        log(f"\n--- Processing Baseline: {baseline} ---")
+        filename = f"{baseline}_REST_{current_date}"
+        csv_filepath = f"./sourcefiles/{filename}.csv"
+        json_filepath = f"./sourcefiles/{filename}.json"
 
-    all_rows = []
-    unique_vm_set = set()
+        headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
+                   "environment", "platform", "status", "id", "title"]
 
-    for sub_id, sub_name in subscriptions:
-        log(f"\nProcessing subscription: {sub_name} ({sub_id})")
-        results = run_resource_graph_query(token, sub_id)
+        all_rows = []
+        unique_vm_set = set()
 
-        # Group by VM
-        vm_control_map = defaultdict(list)
-        for r in results:
-            vm_control_map[r["host_name"]].append(r)
+        for sub_id, sub_name in subscriptions:
+            log(f"\nProcessing subscription: {sub_name} ({sub_id})")
+            results = run_resource_graph_query(token, sub_id, baseline)
 
-        for vm, controls in vm_control_map.items():
-            unique_vm_set.add(vm)
-            log(f"  VM: {vm} - {len(controls)} controls")
-            for control in controls:
-                all_rows.append(control)
+            # Group by VM
+            vm_control_map = defaultdict(list)
+            for r in results:
+                vm_control_map[r["host_name"]].append(r)
 
-    # Summary before writing
-    log(f"\nTotal unique VMs: {len(unique_vm_set)}")
-    log(f"Total rows (controls): {len(all_rows)}")
+            for vm, controls in vm_control_map.items():
+                unique_vm_set.add(vm)
+                log(f"  VM: {vm} - {len(controls)} controls")
+                for control in controls:
+                    all_rows.append(control)
 
-    if not all_rows:
-        log("No compliance data found across subscriptions.")
-        return
+        # Summary before writing
+        log(f"\nTotal unique VMs for {baseline}: {len(unique_vm_set)}")
+        log(f"Total rows (controls): {len(all_rows)}")
 
-    log(f"\nWriting CSV to: {csv_filepath}")
-    with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=headers)
-        writer.writeheader()
-        for row in all_rows:
-            filtered_row = {key: row.get(key, "") for key in headers}
-            writer.writerow(filtered_row)
+        if not all_rows:
+            log(f"No compliance data found for baseline: {baseline}")
+            continue
 
-    log(f"Writing JSON to: {json_filepath}")
-    with open(json_filepath, mode="w", encoding="utf-8") as f:
-        json.dump(all_rows, f, indent=2)
+        log(f"\nWriting CSV to: {csv_filepath}")
+        with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in all_rows:
+                filtered_row = {key: row.get(key, "") for key in headers}
+                writer.writerow(filtered_row)
+
+        log(f"Writing JSON to: {json_filepath}")
+        with open(json_filepath, mode="w", encoding="utf-8") as f:
+            json.dump(all_rows, f, indent=2)
+
+        log(f"\nDone writing for baseline: {baseline}")
 
     end_time = datetime.now()
     duration = end_time - start_time
-    log(f"\nDone. Total records written: {len(all_rows)}")
-    log(f"End Time: {end_time}")
+    log(f"\nEnd Time: {end_time}")
     log(f"Total Execution Time: {duration}")
 
 if __name__ == "__main__":
