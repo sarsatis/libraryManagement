@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import urllib3
 from collections import defaultdict
+import re
 
 # --------- Disable SSL warnings if verification is disabled ---------
 VERIFY_SSL = False
