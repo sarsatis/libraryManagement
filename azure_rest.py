@@ -72,8 +72,9 @@ guestconfigurationresources
         "skipped", 
         iif(resources.complianceStatus == "true", "passed", "failed")
     ),
-    id = split(resources.resourceId, "_")[3], 
-    title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+    cis_id = split(resources.resourceId, "_")[3], 
+    id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
+    message = reason.phrase
 """
 
 def log(msg):
@@ -125,7 +126,8 @@ def run_resource_graph_query(token, subscription_id, baseline):
 
         data = result_json.get("data", [])
         all_results.extend(data)
-        log(f"Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})")
+        if len(data) > 0
+           log(f"Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})")
 
         skip_token = result_json.get("$skipToken")
         if not skip_token:
@@ -156,13 +158,13 @@ def main():
         json_filepath = f"./sourcefiles/{filename}.json"
 
         headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
-                   "environment", "platform", "status", "id", "title"]
+                   "environment", "platform", "status", "cis_id", "id", "message"]
 
         all_rows = []
         unique_vm_set = set()
 
         for sub_id, sub_name in subscriptions:
-            log(f"\nProcessing subscription: {sub_name} ({sub_id})")
+            # log(f"\nProcessing subscription: {sub_name} ({sub_id})")
             results = run_resource_graph_query(token, sub_id, baseline)
 
             # Group by VM
