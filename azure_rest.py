@@ -42,7 +42,6 @@ PROXIES = {
 
 BASELINES = [
     "CIS_Benchmark_Windows2022_Baseline_1_0",
-    # Add more if needed
 ]
 
 QUERY_TEMPLATE = """
@@ -50,8 +49,6 @@ guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains '{baseline}'
-| extend raw_message = tostring(reasons.phrase)
-| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\n", " "), "\r", " "))
 | project 
     subscriptionId, 
     id, 
@@ -66,6 +63,8 @@ guestconfigurationresources
 | extend reasons = resources.reasons
 | extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
 | mv-expand reasons
+| extend raw_message = tostring(reasons.phrase)
+| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
 | order by id
 | project 
     bunit = "azure", 
@@ -83,7 +82,7 @@ guestconfigurationresources
     ),
     platform = split(name, "_")[2], 
     status = iif(
-        reasons.phrase contains "This control is in the waiver list", 
+        raw_message contains "This control is in the waiver list", 
         "skipped", 
         iif(resources.complianceStatus == "true", "passed", "failed")
     ),
@@ -173,11 +172,10 @@ def main():
 
         all_rows = []
         unique_vm_set = set()
-        vm_control_info = defaultdict(lambda: defaultdict(list))  # {sub_name: {vm: [controls]}}
+        vm_control_info = defaultdict(lambda: defaultdict(list))
 
         log(f"Starting to collect data for baseline [{baseline}] across {len(subscriptions)} subscriptions...", CYAN)
 
-        # Collect all data first quietly
         for sub_id, sub_name in subscriptions:
             results = run_resource_graph_query(token, sub_id, baseline)
 
@@ -186,7 +184,6 @@ def main():
                 vm_control_info[sub_name][r["host_name"]].append(r)
                 all_rows.append(r)
 
-        # Print total unique VMs and total rows before detailed logs
         log(f"\nTotal unique VMs for baseline [{baseline}]: {len(unique_vm_set)}", CYAN)
         log(f"Total rows for baseline [{baseline}]: {len(all_rows)}", CYAN)
 
@@ -194,12 +191,10 @@ def main():
             log(f"No compliance data found for baseline: {baseline}", RED)
             continue
 
-        # Now print detailed logs per subscription and VM
         for sub_name, vms in vm_control_info.items():
             for vm, controls in vms.items():
                 log(f"{baseline} - {sub_name} ({vm}) : {len(controls)} controls", MAGENTA)
 
-        # Write CSV
         log(f"\nWriting CSV to: {csv_filepath}", GREEN)
         with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=headers)
@@ -208,7 +203,6 @@ def main():
                 filtered_row = {key: row.get(key, "") for key in headers}
                 writer.writerow(filtered_row)
 
-        # Write JSON
         log(f"Writing JSON to: {json_filepath}", GREEN)
         with open(json_filepath, mode="w", encoding="utf-8") as f:
             json.dump(all_rows, f, indent=2)
