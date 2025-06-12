@@ -12,14 +12,18 @@ VERIFY_SSL = False
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+tenant_id = os.getenv("tenant_id")
+client_id = os.getenv("client_id")
+client_secret = os.getenv("client_secret")
+
 # --------- Configurations ---------
-TENANT_ID = "<NPE SP Tenant ID>"
-CLIENT_ID = "<NPE SP App ID>"
-CLIENT_SECRET = "<NPE SP App Secret>"
+TENANT_ID = tenant_id
+CLIENT_ID = client_id
+CLIENT_SECRET = client_secret
 
 PROXIES = {
-    # 'http': 'http://proxyaddress:port',
-    # 'https': 'http://proxyaddress:port',
+    'http': 'http://statestr.com:80',
+    'https': 'http://statestr.com:80',
 }
 
 QUERY_TEMPLATE = """
@@ -62,7 +66,7 @@ guestconfigurationresources
         "skipped", 
         iif(resources.complianceStatus == "true", "passed", "failed")
     ),
-    id = split(resources.resourceID, "_")[3], 
+    id = split(resources.resourceId, "_")[3], 
     title = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 """
 
@@ -137,7 +141,7 @@ def main():
     log(f"Start Time: {start_time}")
 
     current_date = start_time.strftime('%Y-%m-%d')
-    filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_{current_date}"
+    filename = f"CIS_Benchmark_Windows2022_Baseline_1_0_REST_{current_date}"
     os.makedirs("sourcefiles", exist_ok=True)
     csv_filepath = f"./sourcefiles/{filename}.csv"
     json_filepath = f"./sourcefiles/{filename}.json"
