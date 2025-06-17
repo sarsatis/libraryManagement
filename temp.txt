@@ -1,53 +1,33 @@
-User Story: Platform-Specific Compliance Query Execution
-Title: Execute platform-specific compliance queries dynamically via Python script
+Title: Automate Azure compliance checks and Splunk publishing via Ansible
 As a
 Platform Engineer
 
 I want to
-Provide multiple queries (per platform) to a Python script
+Use Ansible to execute Azure compliance Python scripts, export results to Excel, and send them to Splunk
 
 So that
-The script detects the underlying OS (Linux/Windows) and executes the appropriate compliance queries, generating a report automatically
-
-Description
-Compliance checks differ based on the underlying platform. A flexible script should allow me to supply a dictionary or configuration file containing queries or commands for multiple platforms. Upon execution, the script should:
-
-Detect the host operating system.
-
-Select the corresponding query set for that OS.
-
-Run each query/command.
-
-Aggregate the results.
-
-Output a structured compliance report (e.g., JSON, CSV, or text format).
-
-This avoids hardcoding or manual switching and ensures consistent compliance verification across platforms in hybrid environments.
+Azure compliance data is automated, standardized, and visible in Splunk dashboards for analysis
 
 Acceptance Criteria (Short Version)
-Platform Detection
+Azure Connection
 
-Script detects the OS (Linux/Windows) automatically.
+Ansible playbook connects securely to Azure using service principal credentials.
 
-Query Selection
+Script Execution
 
-Loads and runs only queries relevant to the detected platform.
+Python script is executed via Ansible on a control node or target system.
 
-Execution & Result Capture
+Data Export
 
-Executes queries and captures output, errors, and status.
+Compliance data is exported to an Excel file after script execution.
 
-Report Generation
+Splunk Integration
 
-Generates a structured compliance report (JSON, CSV, or text).
+Excel or parsed data is sent to Splunk via HTTP Event Collector (HEC).
 
-Error Handling
+Idempotency & Logs
 
-Logs errors per query without stopping overall execution.
-
-Extensibility
-
-Supports adding new platforms via config without code changes.
+Playbook runs idempotently and logs success/failure of each step.
 ---
 # -------------------- Secure Login --------------------
 $SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
