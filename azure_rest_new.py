@@ -53,6 +53,11 @@ BASELINES = [
     "CIS_Benchmark_Linux2022_Baseline_1_0",  # Example Linux baseline, add more if needed
 ]
 
+# --------- Path Configuration ---------
+SOURCE_FOLDER_NAME = "sourcefiles"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SOURCE_DIR = os.path.join(CURRENT_DIR, SOURCE_FOLDER_NAME)
+
 # --------- Queries ---------
 WINDOWS_QUERY = """
 guestconfigurationresources
@@ -257,7 +262,7 @@ def main():
     log(f"Total subscriptions: {len(subscriptions)}", YELLOW)
 
     current_date = start_time.strftime('%Y-%m-%d')
-    os.makedirs("sourcefiles", exist_ok=True)
+    os.makedirs(SOURCE_DIR, exist_ok=True)
 
     env_label = "UNKNOWN"
     NPE_CLIENT_IDS = {
@@ -280,8 +285,8 @@ def main():
     for baseline in BASELINES:
         log(f"\n--- Processing Baseline: {baseline} ---", BLUE)
         filename = f"{baseline}_REST_{env_label}_{current_date}"
-        csv_filepath = f"./sourcefiles/{filename}.csv"
-        json_filepath = f"./sourcefiles/{filename}.json"
+        csv_filepath = os.path.join(SOURCE_DIR, f"{filename}.csv")
+        json_filepath = os.path.join(SOURCE_DIR, f"{filename}.json")
 
         headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
                    "environment", "platform", "status", "cis_id", "id", "message"]
