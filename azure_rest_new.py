@@ -160,41 +160,40 @@ def get_access_token(tenant_id, client_id, client_secret):
     else:
         raise Exception(f"Failed to get token: {result.get('error_description')}")
 
-# def get_subscriptions(token):
-#     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
-#     headers = {"Authorization": f"Bearer {token}"}
-#     resp = requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
-#     resp.raise_for_status()
-#     subs = resp.json().get("value", [])
-#     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
-  
 
-def get_subscriptions(token, max_retries=5):
-    url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
-    headers = {"Authorization": f"Bearer {token}"}
-
+def with_retries(request_func, max_retries=5, base_delay=2, retry_on=(429, 500, 502, 503, 504)):
     for attempt in range(1, max_retries + 1):
         try:
-            resp = requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
-            if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", "5"))
-                log(f"429 Too Many Requests. Retrying in {retry_after} seconds...", YELLOW)
+            response = request_func()
+            if response.status_code in retry_on:
+                retry_after = int(response.headers.get("Retry-After", base_delay))
+                log(f"Retryable error ({response.status_code}). Retrying in {retry_after} seconds...", YELLOW)
                 time.sleep(retry_after)
                 continue
-            resp.raise_for_status()
-            subs = resp.json().get("value", [])
-            return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
-        except requests.exceptions.HTTPError as e:
-            log(f"Attempt {attempt}: HTTPError - {e}", RED)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            log(f"Attempt {attempt}: {e}", RED)
             if attempt == max_retries:
                 raise
-            time.sleep(attempt * 2)
+            delay = base_delay * attempt
+            log(f"Retrying in {delay} seconds...", YELLOW)
+            time.sleep(delay)
+
+
+
+def get_subscriptions(token):
+    url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
+    headers = {"Authorization": f"Bearer {token}"}
+    response = with_retries(lambda: requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL))
+    subs = response.json().get("value", [])
+    return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
+
 
 def run_resource_graph_query(token, subscription_id, baseline):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    # Select query based on baseline content (windows or linux)
     if "linux" in baseline.lower():
         query = LINUX_QUERY.format(subscription_id=subscription_id, baseline=baseline)
     else:
@@ -213,10 +212,10 @@ def run_resource_graph_query(token, subscription_id, baseline):
         if skip_token:
             body["options"]["$skipToken"] = skip_token
 
-        response = requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL)
-        response.raise_for_status()
-        result_json = response.json()
+        # Use retry logic here
+        response = with_retries(lambda: requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL))
 
+        result_json = response.json()
         data = result_json.get("data", [])
         all_results.extend(data)
 
@@ -229,6 +228,7 @@ def run_resource_graph_query(token, subscription_id, baseline):
         page += 1
 
     return all_results
+
 
 def filter_message(message):
     # Patterns to remove (literal sequences of +, -, = signs of length >= 1)
