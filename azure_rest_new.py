@@ -7,7 +7,8 @@ from datetime import datetime
 import urllib3
 from collections import defaultdict
 import re
-
+import time
+import sys
 # --------- Disable SSL warnings if verification is disabled ---------
 VERIFY_SSL = False
 if not VERIFY_SSL:
@@ -24,9 +25,15 @@ GRAY = "\033[90m"
 RESET = "\033[0m"
 
 # --------- Logger ---------
-def log(msg, color=RESET):
-    print(f"{color}{msg}{RESET}")
+def supports_color():
+    return sys.stdout.isatty()
 
+def log(msg, color=RESET):
+    if supports_color():
+        print(f"{color}{msg}{RESET}")
+    else:
+        print(msg)
+        
 # --------- Azure Auth ---------
 tenant_id = os.getenv("tenant_id")
 client_id = os.getenv("client_id")
@@ -153,13 +160,35 @@ def get_access_token(tenant_id, client_id, client_secret):
     else:
         raise Exception(f"Failed to get token: {result.get('error_description')}")
 
-def get_subscriptions(token):
+# def get_subscriptions(token):
+#     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
+#     headers = {"Authorization": f"Bearer {token}"}
+#     resp = requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
+#     resp.raise_for_status()
+#     subs = resp.json().get("value", [])
+#     return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
+  
+
+def get_subscriptions(token, max_retries=5):
     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
     headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
-    resp.raise_for_status()
-    subs = resp.json().get("value", [])
-    return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", "5"))
+                log(f"429 Too Many Requests. Retrying in {retry_after} seconds...", YELLOW)
+                time.sleep(retry_after)
+                continue
+            resp.raise_for_status()
+            subs = resp.json().get("value", [])
+            return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
+        except requests.exceptions.HTTPError as e:
+            log(f"Attempt {attempt}: HTTPError - {e}", RED)
+            if attempt == max_retries:
+                raise
+            time.sleep(attempt * 2)
 
 def run_resource_graph_query(token, subscription_id, baseline):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
