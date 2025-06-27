@@ -321,6 +321,20 @@ def main():
             log(f"{baseline} - {sub_name}", MAGENTA)
             for vm, controls in vms.items():
                 log(f"    ({vm}) : {len(controls)} controls", CYAN)
+        
+                cis_id_counts = defaultdict(int)
+                for control in controls:
+                    cis_id = control.get("cis_id")
+                    if cis_id:
+                        cis_id_counts[cis_id] += 1
+        
+                duplicates = [cid for cid, count in cis_id_counts.items() if count > 1]
+        
+                if duplicates:
+                    total_duplicate_vm_count += 1
+                    log(f"        {len(duplicates)} duplicated cis_id(s) found!", YELLOW)
+                    for d in duplicates:
+                        log(f"            - Duplicated cis_id: {d} (count: {cis_id_counts[d]})", RED)
 
         log(f"\nWriting CSV to: {csv_filepath}", GREEN)
         with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
