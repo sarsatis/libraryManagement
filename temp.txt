@@ -2,18 +2,21 @@ import os
 import sys
 import json
 
-# Simulated function to upload data to Splunk
 def upload_to_splunk(data):
-    print(f"Uploading {len(data)} records to Splunk...")
-    # Real implementation would go here
+    print(f"✅ Uploading {len(data)} records to Splunk...")
+    # Placeholder: Replace with real Splunk logic
 
 def find_sourcefiles_dir(target_folder):
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    for root, dirs, files in os.walk(base_dir):
+    # Always start from the parent of the script dir (assumes script is in data_ingestion/)
+    script_dir = os.path.abspath(os.path.dirname(__file__))  # /.../data_ingestion
+    root_dir = os.path.abspath(os.path.join(script_dir, '..'))  # /.../chf_data_ingestion
+
+    # Recursively search for the folder name under the root directory
+    for root, dirs, files in os.walk(root_dir):
         if os.path.basename(root) == target_folder:
-            source_path = os.path.join(root, 'sourcefiles')
-            if os.path.exists(source_path):
-                return source_path
+            sourcefiles_path = os.path.join(root, 'sourcefiles')
+            if os.path.isdir(sourcefiles_path):
+                return sourcefiles_path
     return None
 
 def load_json_files(source_dir):
@@ -21,12 +24,12 @@ def load_json_files(source_dir):
     for filename in os.listdir(source_dir):
         if filename.endswith('.json'):
             filepath = os.path.join(source_dir, filename)
-            with open(filepath, 'r') as f:
-                try:
+            try:
+                with open(filepath, 'r') as f:
                     data = json.load(f)
                     json_data.append(data)
-                except json.JSONDecodeError:
-                    print(f"Warning: Skipped invalid JSON file {filename}")
+            except json.JSONDecodeError:
+                print(f"⚠️ Skipped invalid JSON: {filename}")
     return json_data
 
 def main():
@@ -38,20 +41,21 @@ def main():
     source_dir = find_sourcefiles_dir(folder_name)
 
     if not source_dir:
-        print(f"Error: Could not find sourcefiles directory for {folder_name}")
+        print(f"❌ Could not find 'sourcefiles' under folder: {folder_name}")
         sys.exit(1)
 
-    print(f"Found source directory: {source_dir}")
+    print(f"✅ Found sourcefiles directory: {source_dir}")
     data = load_json_files(source_dir)
 
     if not data:
-        print("No valid JSON files found.")
+        print("⚠️ No valid JSON files found in: {source_dir}")
         sys.exit(0)
 
     upload_to_splunk(data)
 
 if __name__ == "__main__":
     main()
+
 
 
 -----
