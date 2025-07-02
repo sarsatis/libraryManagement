@@ -38,25 +38,23 @@ def log(msg, color=RESET):
 tenant_id = os.getenv("tenant_id")
 client_id = os.getenv("client_id")
 client_secret = os.getenv("client_secret")
+exec_mode = "weekly_cis_azure"
+
 
 TENANT_ID = tenant_id
 CLIENT_ID = client_id
 CLIENT_SECRET = client_secret
 
 PROXIES = {
-    'http': 'http://statestr.com:80',
-    'https': 'http://statestr.com:80',
+    'http': 'http://proxy.statestr.com:80',
+    'https': 'http://proxy.statestr.com:80',
 }
 
 BASELINES = [
     "CIS_Benchmark_Windows2022_Baseline_1_0",
-    "CIS_Benchmark_Linux2022_Baseline_1_0",  # Example Linux baseline, add more if needed
+    # "CIS_Benchmark_Linux2019_Baseline_1_0",  
+    # "CIS_Benchmark_RHEL_Baseline_1_0_Part"# Example Linux baseline, add more if needed
 ]
-
-# --------- Path Configuration ---------
-SOURCE_FOLDER_NAME = "sourcefiles"
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-SOURCE_DIR = os.path.join(CURRENT_DIR, SOURCE_FOLDER_NAME)
 
 # --------- Queries ---------
 WINDOWS_QUERY = """
@@ -89,6 +87,7 @@ guestconfigurationresources
     host_name = vmid,
     region = location, 
     environment = case(
+        tolower(vmid) contains_cs 'dev', 'dev',
         tolower(substring(vmid, 5, 1)) == "d", "dev",
         tolower(substring(vmid, 5, 1)) == "q", "qa",
         tolower(substring(vmid, 5, 1)) == "u", "uat",
@@ -152,6 +151,11 @@ guestconfigurationresources
     id = replace_string(tostring(resources.resourceId), "[LinuxControlTranslation]", ""),
     message = clean_message
 """
+
+def get_source_directory(bunit):
+    source_folder_path = f"{bunit}_sourcefiles"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(current_dir, source_folder_path)
 
 def get_access_token(tenant_id, client_id, client_secret):
     authority = f"https://login.microsoftonline.com/{tenant_id}"
@@ -262,6 +266,8 @@ def main():
     log(f"Total subscriptions: {len(subscriptions)}", YELLOW)
 
     current_date = start_time.strftime('%Y-%m-%d')
+    
+    source_dir = get_source_directory(bunit)
     os.makedirs(SOURCE_DIR, exist_ok=True)
 
     env_label = "UNKNOWN"
