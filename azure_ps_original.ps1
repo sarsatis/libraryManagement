@@ -44,7 +44,7 @@ guestconfigurationresources
 
 $VMresults = Search-AzGraph -Query $VMquery -First 1000
 
-Write-Host "Total VMs in all subscriptions $($VMresults.count)" -ForegroundColor Cyan
+Write-Host "Total VMs in all subscriptions $($VMresults.count)" -ForegroundColor Yellow
 
 # Loop through each subscription
 foreach ($sub in $subscriptions) {
@@ -55,14 +55,13 @@ guestconfigurationresources
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
 | project id, vmid = split(properties.targetResourceId, '/')[(-1)],
-reportid = split(properties.latestReportId, '/')[(-1)]
 | order by id 
 "@
 
     $VMresults = Search-AzGraph -Query $VMquery -First 1000
     if ($VMresults.count -gt 0) {
-        Write-Host "Querying subscription Name: $($sub.Name), ID: $($sub.Id)" -ForegroundColor Cyan
-        Write-Host "Total VMs in subscription $($sub.Name): $($VMresults.count)" -ForegroundColor Cyan
+        Write-Host "Querying subscription Name: $($sub.Name), ID: $($sub.Id)" -ForegroundColor Yellow
+        Write-Host "Total VMs in subscription $($sub.Name): $($VMresults.count)" -ForegroundColor Yellow
     } else {
         continue
     }
@@ -96,8 +95,8 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
         tolower(substring(vmid,5,1))=="d", "dev", 
         tolower(substring(vmid,5,1))=="q", "qa", 
         tolower(substring(vmid,5,1))=="u", "uat",
-        tolower(substring(vmid,5,1))=='p',"prod", 
-        'UNKNOWN'
+        tolower(substring(vmid,5,1))=="p","prod", 
+        "UNKNOWN"
     ),
     platform=split(name,"_")[2], 
     status = iif(
@@ -105,12 +104,12 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
         "skipped", 
         iif(resources.complianceStatus=="true","passed","failed")
     ),
-    cis_id = split(resources.resourceId,'_'[3]),
+    cis_id = split(resources.resourceId,"_"[3],
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 "@
         $batchsize = 1000
         $skip = 0
-        $complianceresult = @()
+        $complianceResult = @()
 
         do {
             if ($skip -eq 0) {
@@ -121,11 +120,11 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
 
             $complianceResults += $pagedResults
             $skip += $batchsize
-        }
+        } while ($pagedResults.count -eq $batchsize)
 
-        Write-Host "Total row count for VM $(vm.vmid): $($complianceResults.Count)" -ForegroundColor Cyan
+        Write-Host "Total row count for VM $($vm.vmid): $($complianceResults.Count)" -ForegroundColor Cyan
 
-        foreach ($ctl in $complianceresult) {
+        foreach ($ctl in $complianceResult) {
             $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.cis_id),$($ctl.id),$($exec_mode)"
             $allCsvLines += $resultline
         }
@@ -137,4 +136,10 @@ Write-Host "Writing all results to CSV file..." -ForegroundColor Yellow
 $allCsvLines | Set-Content -Path $csvfilepath -Encoding UTF8
 
 Write-Host "Converting CSV to JSON..." -ForegroundColor Yellow
-Import-Csv -Path "$csvfilepath" | ConvertTo-Json -Depth 10 | Set-Content -Path "$jsonfilepath" -Encoding utf8
+Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding utf8
+
+
+$endTime = Get-Date
+$duration = $endTime - $startTime
+Write-Host "End Time: $endTime" -ForegroundColor Yellow
+Write-Host "Total Execution Time: $(duration.ToString())" -ForegroundColor Green
