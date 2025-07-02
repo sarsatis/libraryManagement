@@ -13,7 +13,6 @@ Write-Host "Start Time: $startTime" -ForegroundColor Yellow
 $specificSubIds = @(
     "11111111-1111-1111-1111-111111111111",
     "22222222-2222-2222-2222-222222222222"
-    # Add more subscription IDs here
 )
 Write-Host "Processing only $($specificSubIds.Count) specific subscriptions." -ForegroundColor Cyan
 
@@ -32,7 +31,7 @@ if (Test-Path $csvfilepath) {
     Remove-Item -Path $jsonfilepath -Force
 }
 if (-not (Test-Path $sourcepath)) {
-    New-Item -ItemType Directory -Path "$sourcepath"
+    New-Item -ItemType Directory -Path "$sourcepath" | Out-Null
 }
 
 # === CSV Headers ===
@@ -40,12 +39,13 @@ $allCsvLines = @()
 $csvHeader= "bunit,subscription,report_id,date,host_name,region,environment,platform,status,cis_id,id,exec_mode"
 $allCsvLines += $csvHeader
 
-# === Loop through each specific subscription ===
+$totalDuplicateVMs = 0
+
 foreach ($subId in $specificSubIds) {
     Write-Host "`nSetting context for subscription ID: $subId" -ForegroundColor Magenta
     Set-AzContext -SubscriptionId $subId | Out-Null
 
-    # === Query to Get All Matching VM Assignments in Subscription ===
+    # Get matching VMs
     $VMquery = @"
 guestconfigurationresources
 | where subscriptionId == '$subId'
@@ -54,7 +54,6 @@ guestconfigurationresources
 | project id, vmid = split(properties.targetResourceId, '/')[(-1)]
 | order by id 
 "@
-
     $VMresults = Search-AzGraph -Query $VMquery -First 1000
 
     if ($VMresults.Count -eq 0) {
@@ -122,6 +121,28 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
 
         Write-Host "Total compliance rows for VM $($vm.vmid): $($complianceResults.Count)" -ForegroundColor Cyan
 
+        # === Duplicate Detection ===
+        $cisIdCounts = @{}
+        foreach ($ctl in $complianceResults) {
+            $cis = $ctl.cis_id
+            if (-not $cis) { continue }
+            if ($cisIdCounts.ContainsKey($cis)) {
+                $cisIdCounts[$cis] += 1
+            } else {
+                $cisIdCounts[$cis] = 1
+            }
+        }
+
+        $duplicateCisIds = $cisIdCounts.GetEnumerator() | Where-Object { $_.Value -gt 1 }
+        if ($duplicateCisIds.Count -gt 0) {
+            $totalDuplicateVMs += 1
+            Write-Host "    Found $($duplicateCisIds.Count) duplicated CIS control(s) in VM: $($vm.vmid)" -ForegroundColor Yellow
+            foreach ($dup in $duplicateCisIds) {
+                Write-Host "        - Duplicated CIS ID: $($dup.Key) (count: $($dup.Value))" -ForegroundColor Red
+            }
+        }
+
+        # Add to CSV content
         foreach ($ctl in $complianceResults) {
             $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.cis_id),$($ctl.id),$($exec_mode)"
             $allCsvLines += $resultline
@@ -139,5 +160,6 @@ Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $js
 # === Execution End Time ===
 $endTime = Get-Date
 $duration = $endTime - $startTime
+Write-Host "`nTotal VMs with duplicate CIS IDs: $totalDuplicateVMs" -ForegroundColor Yellow
 Write-Host "End Time: $endTime" -ForegroundColor Yellow
 Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
