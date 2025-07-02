@@ -54,7 +54,7 @@ guestconfigurationresources
 | where subscriptionId == '$($sub.Id)'
 | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
-| project id, vmid = split(properties.targetResourceId, '/')[(-1)],
+| project id, vmid = split(properties.targetResourceId, '/')[(-1)]
 | order by id 
 "@
 
@@ -73,7 +73,7 @@ guestconfigurationresources
         $compliancequery = @"
 guestconfigurationresources
 | where id == '$($vm.id)'
-| where type =~ "microsoft.guestconfiguration/guestconfigurationassignments"
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
 | where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
 | project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
 reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
@@ -109,7 +109,7 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
 "@
         $batchsize = 1000
         $skip = 0
-        $complianceResult = @()
+        $complianceResults = @()
 
         do {
             if ($skip -eq 0) {
@@ -120,11 +120,11 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
 
             $complianceResults += $pagedResults
             $skip += $batchsize
-        } while ($pagedResults.count -eq $batchsize)
+        } while ($pagedResults.Count -eq $batchsize)
 
         Write-Host "Total row count for VM $($vm.vmid): $($complianceResults.Count)" -ForegroundColor Cyan
 
-        foreach ($ctl in $complianceResult) {
+        foreach ($ctl in $complianceResults) {
             $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.cis_id),$($ctl.id),$($exec_mode)"
             $allCsvLines += $resultline
         }
@@ -136,10 +136,10 @@ Write-Host "Writing all results to CSV file..." -ForegroundColor Yellow
 $allCsvLines | Set-Content -Path $csvfilepath -Encoding UTF8
 
 Write-Host "Converting CSV to JSON..." -ForegroundColor Yellow
-Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding utf8
+Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding UTF8
 
 
 $endTime = Get-Date
 $duration = $endTime - $startTime
 Write-Host "End Time: $endTime" -ForegroundColor Yellow
-Write-Host "Total Execution Time: $(duration.ToString())" -ForegroundColor Green
+Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
