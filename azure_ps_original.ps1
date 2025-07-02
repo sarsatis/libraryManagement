@@ -104,7 +104,7 @@ reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.
         "skipped", 
         iif(resources.complianceStatus=="true","passed","failed")
     ),
-    cis_id = split(resources.resourceId,"_"[3],
+    cis_id = split(resources.resourceId,"_")[3],
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
 "@
         $batchsize = 1000
