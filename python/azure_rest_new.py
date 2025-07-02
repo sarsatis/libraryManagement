@@ -323,7 +323,7 @@ def main(bunit):
             log(f"No compliance data found for baseline: {baseline}", RED)
             continue
 
-        total_dublicate_vm_count = 0
+        total_duplicate_vm_count = 0
 
         # Updated printing format with colors
         for sub_name, vms in vm_control_info.items():
