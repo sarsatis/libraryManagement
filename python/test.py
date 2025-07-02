@@ -72,11 +72,8 @@ guestconfigurationresources
     reporttime = properties.lastComplianceStatusChecked
 | extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
 | mv-expand resources limit 1000
-| extend reasons = resources.reasons
-| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
-| mv-expand reasons
-| extend raw_message = tostring(reasons.phrase)
-| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
+| extend first_reason = iif(array_length(resources.reasons) > 0, tostring(resources.reasons[0].phrase), "")
+| extend clean_message = trim(" ", replace_string(replace_string(first_reason, "\\n", " "), "\\r", " "))
 | order by id
 | project 
     bunit = "azure", 
@@ -95,7 +92,7 @@ guestconfigurationresources
     ),
     platform = split(name, "_")[2], 
     status = iif(
-        raw_message contains "This control is in the waiver list", 
+        first_reason contains "This control is in the waiver list", 
         "skipped", 
         iif(resources.complianceStatus == "true", "passed", "failed")
     ),
@@ -103,6 +100,7 @@ guestconfigurationresources
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
     message = clean_message
 """
+
 
 LINUX_QUERY = """
 guestconfigurationresources
