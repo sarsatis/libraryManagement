@@ -1,0 +1,143 @@
+# Authentication
+$SecurePassword = ConvertTo-SecureString -String "" -AsPlainText -Force
+$TenantId = "<NPE SP Tenant ID>"
+$ApplicationId = "<NPE SP App ID>"
+$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ApplicationId, $SecurePassword
+Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $Credential -WarningAction Ignore
+
+# Execution Start Time
+$startTime = Get-Date
+Write-Host "Start Time: $startTime" -ForegroundColor Yellow
+
+# === Only Use Specific Subscription IDs ===
+$specificSubIds = @(
+    "11111111-1111-1111-1111-111111111111",
+    "22222222-2222-2222-2222-222222222222"
+    # Add more subscription IDs here
+)
+Write-Host "Processing only $($specificSubIds.Count) specific subscriptions." -ForegroundColor Cyan
+
+# === Output Report Paths ===
+$exec_mode  = "weekly_cis_azure"
+$currentdate = Get-Date -Format "yyyy-MM-dd"
+$environment = "NPE"
+$filename= "CIS_Benchmark_Windows2022_Baseline_1_0_OPTIMISED_$($environment)_$currentdate"
+$sourcepath = ".\sourcefiles"
+$csvfilepath = "$sourcepath\$filename.csv"
+$jsonfilepath = "$sourcepath\$filename.json"
+
+# Clean up previous files
+if (Test-Path $csvfilepath) { 
+    Remove-Item -Path $csvfilepath -Force 
+    Remove-Item -Path $jsonfilepath -Force
+}
+if (-not (Test-Path $sourcepath)) {
+    New-Item -ItemType Directory -Path "$sourcepath"
+}
+
+# === CSV Headers ===
+$allCsvLines = @()
+$csvHeader= "bunit,subscription,report_id,date,host_name,region,environment,platform,status,cis_id,id,exec_mode"
+$allCsvLines += $csvHeader
+
+# === Loop through each specific subscription ===
+foreach ($subId in $specificSubIds) {
+    Write-Host "`nSetting context for subscription ID: $subId" -ForegroundColor Magenta
+    Set-AzContext -SubscriptionId $subId | Out-Null
+
+    # === Query to Get All Matching VM Assignments in Subscription ===
+    $VMquery = @"
+guestconfigurationresources
+| where subscriptionId == '$subId'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project id, vmid = split(properties.targetResourceId, '/')[(-1)]
+| order by id 
+"@
+
+    $VMresults = Search-AzGraph -Query $VMquery -First 1000
+
+    if ($VMresults.Count -eq 0) {
+        Write-Host "No matching VMs found in subscription $subId" -ForegroundColor DarkYellow
+        continue
+    }
+
+    Write-Host "Found $($VMresults.Count) VMs in subscription $subId" -ForegroundColor Yellow
+
+    foreach ($vm in $VMresults) {
+        Write-Host "Querying compliance for VM: $($vm.vmid)" -ForegroundColor Cyan
+
+        $compliancequery = @"
+guestconfigurationresources
+| where id == '$($vm.id)'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains 'CIS_Benchmark_Windows2022_Baseline_1_0'
+| project subscriptionId, id, name, location, resources = properties.latestAssignmentReport.resources, vmid = split(properties.targetResourceId, '/')[(-1)],
+reportid = split(properties.latestReportId, '/')[(-1)], reporttime = properties.lastComplianceStatusChecked
+| order by id
+| extend resources = iff(isnull(resources[0]), dynamic([{}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{}]), reasons)
+| mv-expand reasons
+| project 
+    bunit="azure", 
+    subscription=subscriptionId, 
+    report_id=reportid, 
+    Date=format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name=vmid,
+    region=location, 
+    environment=case(
+        tolower(vmid) contains_cs 'dev', 'dev',
+        tolower(substring(vmid,5,1))=="d", "dev", 
+        tolower(substring(vmid,5,1))=="q", "qa", 
+        tolower(substring(vmid,5,1))=="u", "uat",
+        tolower(substring(vmid,5,1))=="p","prod", 
+        "UNKNOWN"
+    ),
+    platform=split(name,"_")[2], 
+    status = iif(
+        reasons.phrase contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus=="true","passed","failed")
+    ),
+    cis_id = split(resources.resourceId,"_")[3],
+    id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", "")
+"@
+
+        $batchsize = 1000
+        $skip = 0
+        $complianceResults = @()
+
+        do {
+            if ($skip -eq 0) {
+                $pagedResults = Search-AzGraph -Query $compliancequery -First $batchsize
+            } else {
+                $pagedResults = Search-AzGraph -Query $compliancequery -First $batchsize -Skip $skip
+            }
+
+            $complianceResults += $pagedResults
+            $skip += $batchsize
+        } while ($pagedResults.Count -eq $batchsize)
+
+        Write-Host "Total compliance rows for VM $($vm.vmid): $($complianceResults.Count)" -ForegroundColor Cyan
+
+        foreach ($ctl in $complianceResults) {
+            $resultline = "$($ctl.bunit),$($ctl.subscription),$($ctl.report_id),$($ctl.Date),$($ctl.host_name),$($ctl.region),$($ctl.environment),$($ctl.platform),$($ctl.status),$($ctl.cis_id),$($ctl.id),$($exec_mode)"
+            $allCsvLines += $resultline
+        }
+    }
+}
+
+# === Write Output Files ===
+Write-Host "Writing all results to CSV file..." -ForegroundColor Yellow
+$allCsvLines | Set-Content -Path $csvfilepath -Encoding UTF8
+
+Write-Host "Converting CSV to JSON..." -ForegroundColor Yellow
+Import-Csv -Path $csvfilepath | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonfilepath -Encoding UTF8
+
+# === Execution End Time ===
+$endTime = Get-Date
+$duration = $endTime - $startTime
+Write-Host "End Time: $endTime" -ForegroundColor Yellow
+Write-Host "Total Execution Time: $($duration.ToString())" -ForegroundColor Green
