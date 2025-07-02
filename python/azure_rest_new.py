@@ -40,19 +40,18 @@ client_id = os.getenv("client_id")
 client_secret = os.getenv("client_secret")
 exec_mode = "weekly_cis_azure"
 
-
 TENANT_ID = tenant_id
 CLIENT_ID = client_id
 CLIENT_SECRET = client_secret
 
 PROXIES = {
     'http': 'http://proxy.statestr.com:80',
-    'https': 'http://proxy.statestr.com:80',
+    'https': 'http://proxy.statestr.com:80'
 }
 
 BASELINES = [
     "CIS_Benchmark_Windows2022_Baseline_1_0",
-    # "CIS_Benchmark_Linux2019_Baseline_1_0",  
+    # "CIS_Benchmark_Windows2019_Baseline_1_0",  
     # "CIS_Benchmark_RHEL_Baseline_1_0_Part"# Example Linux baseline, add more if needed
 ]
 
@@ -203,10 +202,10 @@ def run_resource_graph_query(token, subscription_id, baseline):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    if "linux" in baseline.lower():
-        query = LINUX_QUERY.format(subscription_id=subscription_id, baseline=baseline)
-    else:
+    if "windows" in baseline.lower():
         query = WINDOWS_QUERY.format(subscription_id=subscription_id, baseline=baseline)
+    else:
+        query = LINUX_QUERY.format(subscription_id=subscription_id, baseline=baseline)
 
     all_results = []
     page = 1
@@ -228,7 +227,7 @@ def run_resource_graph_query(token, subscription_id, baseline):
         data = result_json.get("data", [])
         all_results.extend(data)
 
-        if len(data) > 0:
+        if len(data) > 0 and supports_color():
             log(f"Page {page}: Fetched {len(data)} records (Total so far: {len(all_results)})", GRAY)
 
         skip_token = result_json.get("$skipToken")
@@ -254,7 +253,7 @@ def filter_message(message):
     return cleaned_message
 
 # --------- Main ---------
-def main():
+def main(bunit):
     start_time = datetime.now()
     log(f"Start Time: {start_time}", GREEN)
 
@@ -268,7 +267,7 @@ def main():
     current_date = start_time.strftime('%Y-%m-%d')
     
     source_dir = get_source_directory(bunit)
-    os.makedirs(SOURCE_DIR, exist_ok=True)
+    os.makedirs(source_dir, exist_ok=True)
 
     env_label = "UNKNOWN"
     NPE_CLIENT_IDS = {
@@ -291,11 +290,11 @@ def main():
     for baseline in BASELINES:
         log(f"\n--- Processing Baseline: {baseline} ---", BLUE)
         filename = f"{baseline}_REST_{env_label}_{current_date}"
-        csv_filepath = os.path.join(SOURCE_DIR, f"{filename}.csv")
-        json_filepath = os.path.join(SOURCE_DIR, f"{filename}.json")
+        csv_filepath = os.path.join(source_dir, f"{filename}.csv")
+        json_filepath = os.path.join(source_dir, f"{filename}.json")
 
-        headers = ["bunit", "subscription", "report_id", "Date", "host_name", "region",
-                   "environment", "platform", "status", "cis_id", "id", "message"]
+        headers = ["bunit", "subscription", "report_id", "date", "host_name", "region",
+                   "environment", "platform", "status", "cis_id", "id", "message", "exec_mode"]
 
         all_rows = []
         unique_vm_set = set()
@@ -311,6 +310,8 @@ def main():
                 if r["message"] == "":
                     continue
 
+                r["exec_mode"] = exec_mode
+                
                 unique_vm_set.add(r["host_name"])
                 vm_control_info[sub_name][r["host_name"]].append(r)
                 all_rows.append(r)
@@ -321,6 +322,8 @@ def main():
         if not all_rows:
             log(f"No compliance data found for baseline: {baseline}", RED)
             continue
+
+        total_dublicate_vm_count = 0
 
         # Updated printing format with colors
         for sub_name, vms in vm_control_info.items():
@@ -362,4 +365,10 @@ def main():
     log(f"Total Execution Time: {duration}", GREEN)
 
 if __name__ == "__main__":
-    main()
+
+    if len(sys.argv) != 2:
+        print("Usage: python azuregraph_rest.py <business_unit> e.g azure_ssc")
+        sys.exit(1)
+
+    bunit = sys.argv[1]
+    main(bunit)
