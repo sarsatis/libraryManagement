@@ -59,13 +59,20 @@ BASELINES = [
 WINDOWS_QUERY = """
 guestconfigurationresources
 | where id == '{resource_id}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains '{baseline}'
 | project subscriptionId, id, name, location,
     resources = properties.latestAssignmentReport.resources,
     vmid = split(properties.targetResourceId,'/')[(-1]),
     reportid = split(properties.latestReportId,'/')[(-1]),
     reporttime = properties.lastComplianceStatusChecked
-| mv-expand resources
-| extend raw_message = iif(array_length(resources.reasons) > 0, tostring(resources.reasons[0].phrase), "")
+| order by id
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| mv-expand reasons
+| extend raw_message = tostring(reasons.phrase)
 | extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
 | project
     bunit = "azure",
@@ -83,8 +90,9 @@ guestconfigurationresources
         'UNKNOWN'),
     platform = split(name,"_")[2],
     status = iif(
-        clean_message contains "waiver list","skipped",
-        iif(resources.complianceStatus=='true',"passed","failed")
+        raw_message contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
     ),
     cis_id = split(resources.resourceId,"_")[3],
     id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
@@ -233,25 +241,27 @@ def main(bunit):
         for sub_id, sub_name in subscriptions:
             vm_query = VM_LIST_QUERY.format(subscription_id=sub_id, baseline=baseline)
             vm_list = run_resource_graph_query(token, sub_id, vm_query)
-            log(f"Found {len(vm_list)} VMs in subscription {sub_name}", CYAN)
+            
+            # log(f"Found {len(vm_list)} VMs in subscription {sub_name}", CYAN)
 
             for vm in vm_list:
                 resource_id = vm["id"]
                 vmid = vm["vmid"]
 
                 if "windows" in baseline.lower():
-                    compliance_query = WINDOWS_QUERY.format(resource_id=resource_id)
+                    compliance_query = WINDOWS_QUERY.format(resource_id=resource_id, baseline=baseline)
                 else:
-                    compliance_query = LINUX_QUERY.format(resource_id=resource_id)
+                    compliance_query = LINUX_QUERY.format(resource_id=resource_id, baseline=baseline)
 
                 compliance_data = run_resource_graph_query(token, sub_id, compliance_query)
 
                 for r in compliance_data:
                     r["message"] = filter_message(r.get("message", ""))
-                    if r["message"] == "":
-                        continue
+                    # if r["message"] == "":
+                    #     continue
 
                     r["exec_mode"] = exec_mode
+                    r["date"] = r.get("Date", "")
                     unique_vm_set.add(r["host_name"])
                     vm_control_info[sub_name][r["host_name"]].append(r)
                     all_rows.append(r)
