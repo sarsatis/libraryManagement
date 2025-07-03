@@ -52,6 +52,8 @@ PROXIES = {
 
 BASELINES = [
     "CIS_Benchmark_Windows2022_Baseline_1_0",
+    # "CIS_Benchmark_Windows2019_Baseline_1_0",
+    # "CIS_Benchmark_RHEL_Baseline_1_0_Part"
     # Add more as needed
 ]
 
