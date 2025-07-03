@@ -10,7 +10,7 @@ import re
 import time
 import sys
 
-# --------- Disable SSL warnings ---------
+# --------- Disable SSL warnings if verification is disabled ---------
 VERIFY_SSL = False
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -56,77 +56,8 @@ BASELINES = [
 ]
 
 # --------- Queries ---------
-WINDOWS_QUERY = """
-guestconfigurationresources
-| where id == '{resource_id}'
-| project subscriptionId, id, name, location,
-    resources = properties.latestAssignmentReport.resources,
-    vmid = split(properties.targetResourceId, "/")[-1],
-    reportid = split(properties.latestReportId, "/")[-1],
-    reporttime = properties.lastComplianceStatusChecked
-| mv-expand resources
-| extend reasons = resources.reasons
-| mv-expand reasons
-| extend raw_message = tostring(reasons.phrase)
-| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
-| project
-    bunit = "azure",
-    subscription = subscriptionId,
-    report_id = reportid,
-    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"),
-    host_name = vmid,
-    region = location,
-    environment = case(
-        tolower(host_name) has "dev", "dev",
-        tolower(substring(host_name, 5, 1)) == "d", "dev",
-        tolower(substring(host_name, 5, 1)) == "q", "qa",
-        tolower(substring(host_name, 5, 1)) == "u", "uat",
-        tolower(substring(host_name, 5, 1)) == "p", "prod",
-        "UNKNOWN"),
-    platform = split(name, "_")[2],
-    status = iif(
-        raw_message has "waiver list", "skipped",
-        iif(resources.complianceStatus == "true", "passed", "failed")
-    ),
-    cis_id = split(resources.resourceId, "_")[3],
-    id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
-    message = clean_message
-"""
-
-LINUX_QUERY = """
-guestconfigurationresources
-| where id == '{resource_id}'
-| project subscriptionId, id, name, location,
-    resources = properties.latestAssignmentReport.resources,
-    vmid = split(properties.targetResourceId, "/")[-1],
-    reportid = split(properties.latestReportId, "/")[-1],
-    reporttime = properties.lastComplianceStatusChecked
-| mv-expand resources
-| extend raw_message = iif(array_length(resources.reasons) > 0, tostring(resources.reasons[0].phrase), "")
-| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
-| project
-    bunit = "azure",
-    subscription = subscriptionId,
-    report_id = reportid,
-    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"),
-    host_name = vmid,
-    region = location,
-    environment = case(
-        tolower(host_name) has "dev", "dev",
-        tolower(substring(host_name, 5, 1)) == "d", "dev",
-        tolower(substring(host_name, 5, 1)) == "q", "qa",
-        tolower(substring(host_name, 5, 1)) == "u", "uat",
-        tolower(substring(host_name, 5, 1)) == "p", "prod",
-        "UNKNOWN"),
-    platform = split(name, "_")[2],
-    status = iif(
-        clean_message has "waiver list", "skipped",
-        iif(resources.complianceStatus == "true", "passed", "failed")
-    ),
-    cis_id = split(resources.resourceId, "_")[3],
-    id = replace_string(tostring(resources.resourceId), "[LinuxControlTranslation]", ""),
-    message = clean_message
-"""
+WINDOWS_QUERY = """<YOUR WINDOWS_QUERY STRING>"""
+LINUX_QUERY = """<YOUR LINUX_QUERY STRING>"""
 
 VM_LIST_QUERY = """
 guestconfigurationresources
@@ -138,139 +69,166 @@ guestconfigurationresources
 """
 
 def get_source_directory(bunit):
-    source_folder = f"{bunit}_sourcefiles"
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), source_folder)
+    source_folder_path = f"{bunit}_sourcefiles"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(current_dir, source_folder_path)
 
 def get_access_token(tenant_id, client_id, client_secret):
+    authority = f"https://login.microsoftonline.com/{tenant_id}"
+    scope = ["https://management.azure.com/.default"]
     app = msal.ConfidentialClientApplication(
-        client_id,
-        authority=f"https://login.microsoftonline.com/{tenant_id}",
-        client_credential=client_secret
+        client_id, authority=authority, client_credential=client_secret,
     )
-    result = app.acquire_token_for_client(scopes=["https://management.azure.com/.default"])
+    result = app.acquire_token_for_client(scopes=scope)
     if "access_token" in result:
         return result["access_token"]
-    raise Exception(f"Auth failed: {result.get('error_description')}")
+    else:
+        raise Exception(f"Failed to get token: {result.get('error_description')}")
 
-def with_retries(request_func, max_retries=5, base_delay=2, retry_on=(429,500,502,503,504)):
-    for i in range(1, max_retries+1):
+def with_retries(request_func, max_retries=5, base_delay=2, retry_on=(429, 500, 502, 503, 504)):
+    for attempt in range(1, max_retries + 1):
         try:
-            r = request_func()
-            if r.status_code in retry_on:
-                delay = int(r.headers.get("Retry-After", base_delay))
-                log(f"Retryable error {r.status_code}, retrying in {delay}s...", YELLOW)
-                time.sleep(delay)
+            response = request_func()
+            if response.status_code in retry_on:
+                retry_after = int(response.headers.get("Retry-After", base_delay))
+                log(f"Retryable error ({response.status_code}). Retrying in {retry_after} seconds...", YELLOW)
+                time.sleep(retry_after)
                 continue
-            r.raise_for_status()
-            return r
-        except requests.RequestException as e:
-            log(f"Attempt {i}: {e}", RED)
-            if i == max_retries:
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            log(f"Attempt {attempt}: {e}", RED)
+            if attempt == max_retries:
                 raise
-            time.sleep(base_delay*i)
+            delay = base_delay * attempt
+            log(f"Retrying in {delay} seconds...", YELLOW)
+            time.sleep(delay)
 
 def get_subscriptions(token):
     url = "https://management.azure.com/subscriptions?api-version=2020-01-01"
-    hdr = {"Authorization": f"Bearer {token}"}
-    res = with_retries(lambda: requests.get(url, headers=hdr, proxies=PROXIES, verify=VERIFY_SSL))
-    return [(s["subscriptionId"], s["displayName"]) for s in res.json().get("value", [])]
+    headers = {"Authorization": f"Bearer {token}"}
+    response = with_retries(lambda: requests.get(url, headers=headers, proxies=PROXIES, verify=VERIFY_SSL))
+    subs = response.json().get("value", [])
+    return [(sub["subscriptionId"], sub["displayName"]) for sub in subs]
 
-def run_resource_graph_query(token, subscription_id, query):
+def run_resource_graph_query(token, subscription_id, query, skip=None, top=None):
     url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"
-    body = {"subscriptions":[subscription_id], "query":query, "options":{"resultFormat":"objectArray"}}
-    hdr = {"Authorization": f"Bearer {token}", "Content-Type":"application/json"}
-    res = with_retries(lambda: requests.post(url, headers=hdr, json=body, proxies=PROXIES, verify=VERIFY_SSL))
-    return res.json().get("data", [])
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    options = {"resultFormat": "objectArray"}
+    if skip is not None:
+        options["skip"] = skip
+    if top is not None:
+        options["top"] = top
+    body = {
+        "subscriptions": [subscription_id],
+        "query": query,
+        "options": options
+    }
+    response = with_retries(lambda: requests.post(url, headers=headers, json=body, proxies=PROXIES, verify=VERIFY_SSL))
+    return response.json().get("data", [])
 
-def filter_message(msg):
-    pat = "(" + "|".join([r"\++", r"\-+", r"\=+"]) + ")"
-    return re.sub(pat, "", msg or "").strip()
+def filter_message(message):
+    patterns = [r"\++", r"\-+", r"\=+"]
+    combined_pattern = "(" + "|".join(patterns) + ")"
+    cleaned_message = re.sub(combined_pattern, "", message)
+    return cleaned_message.strip()
 
+# --------- Main ---------
 def main(bunit):
-    start = datetime.now()
-    log(f"Start Time: {start}", GREEN)
+    start_time = datetime.now()
+    log(f"Start Time: {start_time}", GREEN)
+
+    log("Authenticating and acquiring token...", GREEN)
     token = get_access_token(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-    log("Authenticating done.", GREEN)
 
-    subs = get_subscriptions(token)
-    log(f"Total subscriptions: {len(subs)}", YELLOW)
+    log("Retrieving Azure subscriptions...", GREEN)
+    subscriptions = get_subscriptions(token)
+    log(f"Total subscriptions: {len(subscriptions)}", YELLOW)
 
-    date_str = start.strftime("%Y-%m-%d")
-    src = get_source_directory(bunit)
-    os.makedirs(src, exist_ok=True)
+    current_date = start_time.strftime('%Y-%m-%d')
+    source_dir = get_source_directory(bunit)
+    os.makedirs(source_dir, exist_ok=True)
+
     env_label = "PROD" if "prod" in CLIENT_ID.lower() else "NPE"
 
     for baseline in BASELINES:
         log(f"\n--- Processing Baseline: {baseline} ---", BLUE)
-        fname = f"{baseline}_REST_{env_label}_{date_str}"
-        csv_fp = os.path.join(src, f"{fname}.csv")
-        json_fp = os.path.join(src, f"{fname}.json")
+        filename = f"{baseline}_REST_{env_label}_{current_date}"
+        csv_filepath = os.path.join(source_dir, f"{filename}.csv")
+        json_filepath = os.path.join(source_dir, f"{filename}.json")
 
-        cols = ["bunit","subscription","report_id","date","host_name","region",
-                "environment","platform","status","cis_id","id","message","exec_mode"]
+        headers = ["bunit", "subscription", "report_id", "date", "host_name", "region",
+                   "environment", "platform", "status", "cis_id", "id", "message", "exec_mode"]
+
         all_rows = []
-        uid = set()
-        info = defaultdict(lambda: defaultdict(list))
+        unique_vm_set = set()
+        vm_control_info = defaultdict(lambda: defaultdict(list))
 
-        for sub_id, sub_name in subs:
-            vm_q = VM_LIST_QUERY.format(subscription_id=sub_id, baseline=baseline)
-            vms = run_resource_graph_query(token, sub_id, vm_q)
-            for vm in vms:
-                rid = vm["id"]
+        for sub_id, sub_name in subscriptions:
+            vm_query = VM_LIST_QUERY.format(subscription_id=sub_id, baseline=baseline)
+            vm_list = run_resource_graph_query(token, sub_id, vm_query)
+
+            for vm in vm_list:
+                resource_id = vm["id"]
+                vmid = vm["vmid"]
+                log(f"Querying VM: {vmid}", CYAN)
+
                 if "windows" in baseline.lower():
-                    cq = WINDOWS_QUERY.format(resource_id=rid)
+                    compliance_query = WINDOWS_QUERY.format(resource_id=resource_id, baseline=baseline)
                 else:
-                    cq = LINUX_QUERY.format(resource_id=rid)
-                data = run_resource_graph_query(token, sub_id, cq)
-                for r in data:
-                    r["message"] = filter_message(r.get("message"))
+                    compliance_query = LINUX_QUERY.format(resource_id=resource_id, baseline=baseline)
+
+                batch_size = 1000
+                skip = 0
+                compliance_data = []
+
+                while True:
+                    data = run_resource_graph_query(token, sub_id, compliance_query, skip=skip, top=batch_size)
+                    compliance_data.extend(data)
+                    if len(data) < batch_size:
+                        break
+                    skip += batch_size
+
+                log(f"Compliance results for {vmid}: {len(compliance_data)} rows", CYAN)
+
+                for r in compliance_data:
+                    r["message"] = filter_message(r.get("message", ""))
                     r["exec_mode"] = exec_mode
-                    uid.add(r["host_name"])
-                    info[sub_name][r["host_name"]].append(r)
+                    r["date"] = r.get("Date", "")
+                    unique_vm_set.add(r["host_name"])
+                    vm_control_info[sub_name][r["host_name"]].append(r)
                     all_rows.append(r)
 
-        log(f"Total unique VMs for {baseline}: {len(uid)}", CYAN)
-        log(f"Total rows: {len(all_rows)}", CYAN)
+        log(f"\nTotal unique VMs for baseline [{baseline}]: {len(unique_vm_set)}", CYAN)
+        log(f"Total rows for baseline [{baseline}]: {len(all_rows)}", CYAN)
+
         if not all_rows:
-            log(f"No data found for {baseline}", RED)
+            log(f"No compliance data found for baseline: {baseline}", RED)
             continue
 
-        dup_count = 0
-        for sub_name, vms in info.items():
-            log(f"{baseline} - {sub_name}", MAGENTA)
-            for vm, ctrls in vms.items():
-                log(f"    ({vm}): {len(ctrls)} controls", CYAN)
-                counts = defaultdict(int)
-                for c in ctrls:
-                    cid = c.get("cis_id")
-                    if cid:
-                        counts[cid] += 1
-                dups = [cid for cid, cnt in counts.items() if cnt > 1]
-                if dups:
-                    dup_count += 1
-                    log(f"        {len(dups)} duplicated CIS IDs", YELLOW)
-                    for d in dups:
-                        log(f"            - {d} (count {counts[d]})", RED)
-
-        log(f"\nWriting CSV to: {csv_fp}", GREEN)
-        with open(csv_fp, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=cols)
-            w.writeheader()
+        log(f"\nWriting CSV to: {csv_filepath}", GREEN)
+        with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
             for row in all_rows:
-                w.writerow({k: row.get(k, "") for k in cols})
+                filtered_row = {key: row.get(key, "") for key in headers}
+                writer.writerow(filtered_row)
 
-        log(f"Writing JSON to: {json_fp}", GREEN)
-        with open(json_fp, "w", encoding="utf-8") as f:
+        log(f"Writing JSON to: {json_filepath}", GREEN)
+        with open(json_filepath, mode="w", encoding="utf-8") as f:
             json.dump(all_rows, f, indent=2)
 
-        log(f"\nDone: {baseline}, duplicates VMs: {dup_count}", GREEN)
+        log(f"\nDone writing for baseline: {baseline}", GREEN)
 
-    end = datetime.now()
-    log(f"\nEnd Time: {end}", GREEN)
-    log(f"Total Duration: {end - start}", GREEN)
+    end_time = datetime.now()
+    duration = end_time - start_time
+    log(f"\nEnd Time: {end_time}", GREEN)
+    log(f"Total Execution Time: {duration}", GREEN)
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python azuregraph_rest.py <business_unit>")
+        print("Usage: python azuregraph_rest.py <business_unit> e.g azure_ssc")
         sys.exit(1)
-    main(sys.argv[1])
+
+    bunit = sys.argv[1]
+    main(bunit)
