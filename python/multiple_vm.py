@@ -57,10 +57,104 @@ BASELINES = [
     # Add more as needed
 ]
 
-# --------- Queries ---------
-WINDOWS_QUERY = """<YOUR WINDOWS_QUERY STRING>"""
-LINUX_QUERY = """<YOUR LINUX_QUERY STRING>"""
 
+WINDOWS_QUERY = """
+guestconfigurationresources
+| where subscriptionId == '{subscription_id}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains '{baseline}'
+| project 
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| mv-expand reasons
+| extend raw_message = tostring(reasons.phrase)
+| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
+| order by id
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(vmid) contains_cs 'dev', 'dev',
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        raw_message contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    cis_id = split(resources.resourceId, "_")[3], 
+    id = replace_string(tostring(resources.resourceId), "[WindowsControlTranslation]", ""),
+    message = clean_message
+"""
+
+LINUX_QUERY = """
+guestconfigurationresources
+| where subscriptionId == '{subscription_id}'
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where name contains '{baseline}'
+| project 
+    subscriptionId, 
+    id, 
+    name, 
+    location, 
+    resources = properties.latestAssignmentReport.resources, 
+    vmid = split(properties.targetResourceId, '/')[(-1)],
+    reportid = split(properties.latestReportId, '/')[(-1)], 
+    reporttime = properties.lastComplianceStatusChecked
+| extend resources = iff(isnull(resources[0]), dynamic([{{}}]), resources)
+| mv-expand resources limit 1000
+| extend reasons = resources.reasons
+| extend reasons = iff(isnull(reasons[0]), dynamic([{{}}]), reasons)
+| mv-expand reasons
+| extend raw_message = tostring(reasons.phrase)
+| extend clean_message = trim(" ", replace_string(replace_string(raw_message, "\\n", " "), "\\r", " "))
+| order by id
+| project 
+    bunit = "azure", 
+    subscription = subscriptionId, 
+    report_id = reportid, 
+    Date = format_datetime(todatetime(reporttime), "yyyy-MM-dd"), 
+    host_name = vmid,
+    region = location, 
+    environment = case(
+        tolower(vmid) contains_cs 'dev', 'dev',
+        tolower(substring(vmid, 5, 1)) == "d", "dev",
+        tolower(substring(vmid, 5, 1)) == "q", "qa",
+        tolower(substring(vmid, 5, 1)) == "u", "uat",
+        tolower(substring(vmid, 5, 1)) == "p", "prod",
+        "UNKNOWN"
+    ),
+    platform = split(name, "_")[2], 
+    status = iif(
+        raw_message contains "This control is in the waiver list", 
+        "skipped", 
+        iif(resources.complianceStatus == "true", "passed", "failed")
+    ),
+    cis_id = split(resources.resourceId, "_")[3], 
+    id = replace_string(tostring(resources.resourceId), "[LinuxControlTranslation]", ""),
+    message = clean_message
+"""
+
+# --------- VM List Query ---------
 VM_LIST_QUERY = """
 guestconfigurationresources
 | where subscriptionId == '{subscription_id}'
