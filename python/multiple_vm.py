@@ -276,6 +276,7 @@ def main(bunit):
         unique_vm_set = set()
         vm_control_info = defaultdict(lambda: defaultdict(list))
 
+
         for sub_id, sub_name in subscriptions:
             vm_query = VM_LIST_QUERY.format(subscription_id=sub_id, baseline=baseline)
             vm_list = run_resource_graph_query(token, sub_id, vm_query)
@@ -286,9 +287,9 @@ def main(bunit):
                 log(f"Querying VM: {vmid}", CYAN)
 
                 if "windows" in baseline.lower():
-                    compliance_query = WINDOWS_QUERY.format(resource_id=resource_id, baseline=baseline)
+                    compliance_query = WINDOWS_QUERY.format(subscription_id=sub_id, resource_id=resource_id, baseline=baseline)
                 else:
-                    compliance_query = LINUX_QUERY.format(resource_id=resource_id, baseline=baseline)
+                    compliance_query = LINUX_QUERY.format(subscription_id=sub_id, resource_id=resource_id, baseline=baseline)
 
                 batch_size = 1000
                 skip = 0
@@ -310,6 +311,7 @@ def main(bunit):
                     unique_vm_set.add(r["host_name"])
                     vm_control_info[sub_name][r["host_name"]].append(r)
                     all_rows.append(r)
+
 
         log(f"\nTotal unique VMs for baseline [{baseline}]: {len(unique_vm_set)}", CYAN)
         log(f"Total rows for baseline [{baseline}]: {len(all_rows)}", CYAN)
