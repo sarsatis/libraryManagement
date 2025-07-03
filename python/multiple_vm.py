@@ -149,7 +149,23 @@ def main(bunit):
     source_dir = get_source_directory(bunit)
     os.makedirs(source_dir, exist_ok=True)
 
-    env_label = "PROD" if "prod" in CLIENT_ID.lower() else "NPE"
+    env_label = "UNKNOWN"
+    NPE_CLIENT_IDS = {
+        # Add your known NPE client IDs here
+    }
+    PROD_CLIENT_IDS = {
+        # Add your known PROD client IDs here
+    }
+
+    if CLIENT_ID in NPE_CLIENT_IDS:
+        env_label = "NPE"
+    elif CLIENT_ID in PROD_CLIENT_IDS:
+        env_label = "PROD"
+    else:
+        if "prod" in CLIENT_ID.lower():
+            env_label = "PROD"
+        else:
+            env_label = "NPE"
 
     for baseline in BASELINES:
         log(f"\n--- Processing Baseline: {baseline} ---", BLUE)
@@ -205,6 +221,28 @@ def main(bunit):
         if not all_rows:
             log(f"No compliance data found for baseline: {baseline}", RED)
             continue
+
+        total_duplicate_vm_count = 0
+
+        # Updated printing format with colors
+        for sub_name, vms in vm_control_info.items():
+            log(f"{baseline} - {sub_name}", MAGENTA)
+            for vm, controls in vms.items():
+                log(f"    ({vm}) : {len(controls)} controls", CYAN)
+        
+                cis_id_counts = defaultdict(int)
+                for control in controls:
+                    cis_id = control.get("cis_id")
+                    if cis_id:
+                        cis_id_counts[cis_id] += 1
+        
+                duplicates = [cid for cid, count in cis_id_counts.items() if count > 1]
+        
+                if duplicates:
+                    total_duplicate_vm_count += 1
+                    log(f"        {len(duplicates)} duplicated cis_id(s) found!", YELLOW)
+                    for d in duplicates:
+                        log(f"            - Duplicated cis_id: {d} (count: {cis_id_counts[d]})", RED)
 
         log(f"\nWriting CSV to: {csv_filepath}", GREEN)
         with open(csv_filepath, mode="w", newline="", encoding="utf-8") as f:
